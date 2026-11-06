@@ -1,0 +1,11 @@
+Veritee VM
+Copyright 2026 Input Output Global, Inc.
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes third-party software:
+
+- server/azure_attestation_server/src/vtpm.rs
+  From https://github.com/kinvolk/azure-cvm-tooling
+  Copyright (c) Microsoft Corporation.
+  Licensed under the MIT License.

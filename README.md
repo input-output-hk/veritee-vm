@@ -6,7 +6,13 @@ Confidential VMs (AMD SEV-SNP). It is the VM layer of the Veritee protocol: the
 base OS image, the in-guest attestation server and egress proxy, and the
 `veritee` CLI that packages, deploys and registers DApps.
 
-Original Veritee contributions are licensed under [Apache 2.0](LICENSE).
+Copyright 2026 Input Output Global, Inc. Original Veritee contributions are
+licensed under [Apache 2.0](LICENSE); third-party notices are in [NOTICE](NOTICE).
+
+> **Disclaimer:** This software is experimental and has not been audited. It is
+> provided "AS IS", without warranties or conditions of any kind, express or
+> implied, and is not intended for production use. See sections 7 and 8 of the
+> [license](LICENSE).
 
 ## The Veritee project
 
