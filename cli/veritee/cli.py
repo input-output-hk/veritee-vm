@@ -3479,6 +3479,8 @@ def build_earthly_extend_os_command(
     acr_token: str,
     tls_mode: str,
 ) -> List[str]:
+    if not app_dir or not app_dir.strip():
+        raise DeployerException("APP_DIR must be provided explicitly for an application disk build")
     return [
         "earthly",
         "--no-cache",
@@ -3506,6 +3508,8 @@ def build_earthly_app_disk_command(
     acr_token: str,
     tls_mode: str,
 ) -> List[str]:
+    if not app_dir or not app_dir.strip():
+        raise DeployerException("APP_DIR must be provided explicitly for an application disk build")
     command = [
         "earthly",
         "--no-cache",
@@ -3518,9 +3522,8 @@ def build_earthly_app_disk_command(
         f"--GUEST_ATTESTATION_IMAGE={guest_attestation_image}",
         f"--ACR_REGISTRY={registry}",
         f"--VERITEE_TLS_MODE={tls_mode}",
+        f"--APP_DIR={app_dir}",
     ]
-    if app_dir:
-        command.append(f"--APP_DIR={app_dir}")
 
     return command
 

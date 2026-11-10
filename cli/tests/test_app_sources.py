@@ -143,6 +143,53 @@ class ExternalAppSourceTests(unittest.TestCase):
         key.assert_not_called()
         post.assert_not_called()
 
+    def test_app_disk_command_helpers_require_and_forward_the_selected_source(self):
+        values = {
+            "app_container_image": self.metadata["app_container_image"],
+            "guest_attestation_image": cli.DEFAULT_GUEST_ATTESTATION_IMAGE,
+            "registry": "fixture.azurecr.io", "acr_token": "fixture-token",
+            "tls_mode": "internal",
+        }
+        staged_source = ".temenos/app-build/fixture/app"
+        for helper, extra in (
+            (cli.build_earthly_app_disk_command, {}),
+            (cli.build_earthly_extend_os_command, {"persist_size": "2G"}),
+        ):
+            with self.subTest(helper=helper.__name__):
+                command = helper(app_dir=staged_source, **values, **extra)
+                self.assertEqual(
+                    [value for value in command if value.startswith("--APP_DIR=")],
+                    ["--APP_DIR=" + staged_source],
+                )
+            for missing in ("", " \t"):
+                with self.subTest(helper=helper.__name__, app_dir=missing):
+                    with self.assertRaisesRegex(cli.DeployerException, "APP_DIR must be provided explicitly"):
+                        helper(app_dir=missing, **values, **extra)
+
+    @unittest.skipUnless(os.environ.get("VERITEE_TEST_EARTHLY"), "Set VERITEE_TEST_EARTHLY to test actual Earthly argument admission")
+    def test_earthly_app_targets_reject_missing_or_empty_source_before_building(self):
+        empty_inputs = self.directory / "empty.inputs"
+        empty_inputs.write_text("")
+        for target in (
+            "veritee-os-azure-snp-combined",
+            cli.EARTHLY_EXTEND_OS_TARGET,
+            cli.EARTHLY_APP_DISK_TARGET,
+        ):
+            for supplied in ([], ["--APP_DIR="]):
+                with self.subTest(target=target, supplied=supplied):
+                    result = subprocess.run([
+                        os.environ["VERITEE_TEST_EARTHLY"], "--no-output",
+                        "--arg-file-path", str(empty_inputs),
+                        "--env-file-path", str(empty_inputs),
+                        "--secret-file-path", str(empty_inputs),
+                        "-P", "+" + target, *supplied,
+                    ], cwd=ROOT, capture_output=True, text=True, timeout=60)
+                    output = result.stdout + result.stderr
+                    self.assertNotEqual(result.returncode, 0, output)
+                    self.assertIn("value not supplied for required ARG: APP_DIR", output)
+                    self.assertNotIn("examples/dapp", output)
+                    self.assertNotIn("debian-systemd", output)
+
     def test_build_command_stages_external_relative_source_in_the_checkout(self):
         def build(command, **kwargs):
             self.assertEqual(kwargs["cwd"], ROOT)
