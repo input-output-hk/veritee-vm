@@ -4,13 +4,12 @@ version = "0.1.0"
 description = ""
 license = "Apache-2.0"
 authors = ["Jonathan Duchateau"]
-readme = "README.md"
 packages = [{ include = "veritee_attestation" }]
 
 [tool.poetry.dependencies]
 python = "^3.11"
 cryptography = "^41.0.5"
-requests = "^2.31.0"
+requests = "2.32.5"
 
 
 [build-system]
