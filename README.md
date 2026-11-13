@@ -102,6 +102,9 @@ You also need these tools on your `PATH`:
 
 Build or pull a base OS image, package a DApp, deploy it and register it:
 
+First configure `projects/dapp/metadata.json` with actual digest-pinned image
+references; its placeholders are not ready to package.
+
 ```bash
 # 1. Base OS image (or `veritee pull-base-os-image` for an approved release)
 veritee build-base-os-image --azuresnp
@@ -123,6 +126,13 @@ veritee register-app --metadata-path local-azure-snp/metadata.json
 Each step has options for attestation modes, TLS modes, outbound network
 policy, OS release approval and deployment lifecycle. They are described in the
 [operator guide](docs/operator-guide.md).
+
+Packaging checks bundled registration limits and rebuild inputs locally before
+pulling images. Replace the example metadata's placeholder image references with
+digest pins, then run `veritee validate-dapp --app-dir projects/dapp` to check
+them independently, without contacting Warden. Packages record input hashes
+outside the measured disk and exclude generated `run.d/certs/`. Operator images
+that will not be registered can use `--no-registration-preflight`.
 
 ## Terminology
 
@@ -148,7 +158,7 @@ policy, OS release approval and deployment lifecycle. They are described in the
   design notes for binding a TLS session to the attested enclave.
 - [Egress proxy](server/egress_proxy/README.md) and its
   [security notes](server/egress_proxy/SECURITY.md); the
-  [guest attestation helper](server/guest_attestation/README.md).
+  [guest attestation helper](server/guest_attestation/).
 - Example projects: [Midnight proof server](docs/proof-server-preview.md) and
   [Midnight indexer](docs/indexer-standalone.md).
 

@@ -721,6 +721,7 @@ class AzureDeploymentInventoryTests(unittest.TestCase):
             mock.patch.object(cli, "require_inventory_storage") as inventory,
             mock.patch.object(cli, "repo_root_from_cwd", return_value=Path("/tmp/temenos-test")),
             mock.patch.object(cli, "load_app_metadata", return_value=metadata),
+            mock.patch.object(cli, "load_json_file", return_value=metadata),
             mock.patch.object(cli, "load_tee_measurements", return_value={"measurements": {}, "application_root_hash": "3" * 64}),
             mock.patch.object(cli, "print_phase"),
             mock.patch.object(cli.Deployer, "assert_available") as terraform,
@@ -798,6 +799,9 @@ class AzureDeploymentInventoryTests(unittest.TestCase):
             )
             stack.enter_context(
                 mock.patch.object(cli, "load_app_metadata", return_value=metadata)
+            )
+            stack.enter_context(
+                mock.patch.object(cli, "load_json_file", return_value=metadata)
             )
             stack.enter_context(
                 mock.patch.object(

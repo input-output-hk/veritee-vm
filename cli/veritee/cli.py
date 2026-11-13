@@ -309,6 +309,7 @@ app = typer.Typer(
 )
 
 from veritee import os_release
+from veritee import packaging_validation as pack_validation
 app.add_typer(os_release.commands, name="os-release")
 
 def warn_if_installed_cli_out_of_sync() -> None:
@@ -2088,7 +2089,14 @@ def prepared_app_build_source(
         for repart_definition in source_dir.parent.glob("*.conf"):
             shutil.copy2(repart_definition, staging_root / repart_definition.name)
         staged_dir = staging_root / "app"
-        shutil.copytree(source_dir, staged_dir, symlinks=True)
+        def exclude_runtime_certificates(directory, names):
+            if Path(directory) == source_dir / "run.d" and "certs" in names:
+                return {"certs"}
+            return set()
+
+        shutil.copytree(
+            source_dir, staged_dir, symlinks=True, ignore=exclude_runtime_certificates
+        )
         staged_metadata_path = write_app_metadata(staged_dir, shipped_metadata)
         os.utime(staged_metadata_path, (0, 0))
         yield str(staged_dir.relative_to(Path.cwd())), shipped_metadata
@@ -2228,6 +2236,89 @@ def resolve_packaging_tls_keyvault_name(
     )
 
 
+def local_registration_profile() -> dict:
+    return pack_validation.local_profile(repo_root_from_cwd(), DEFAULT_GUEST_ATTESTATION_IMAGE)
+
+
+def validate_dapp_packaging(
+    app_dir: Path, metadata: dict, *, tls_mode: str, tls_keyvault_name: Optional[str],
+    guest_image: str, registration_preflight: bool = True, allow_warden: bool = False,
+    profile: Optional[dict] = None, selected_os: Optional[dict] = None,
+) -> dict:
+    """Pure input validation. No image pull, build, key creation or Azure write."""
+    profile = profile or local_registration_profile()
+    try:
+        pack_validation.require_pinned_image(metadata["app_container_image"], "app_container_image")
+        pack_validation.require_pinned_image(metadata["base_os_image"], "base_os_image")
+        pack_validation.require_pinned_image(guest_image, "guest_attestation_image")
+        for field in ("name", "app_container_image", "base_os_image"):
+            if len(metadata[field].strip()) > AZURE_TAG_VALUE_MAX_LENGTH:
+                raise ValueError(f"Azure deployment tag derived from {field} exceeds {AZURE_TAG_VALUE_MAX_LENGTH} characters")
+        shipped = prepare_shipped_metadata(
+            load_json_file(app_dir / APP_METADATA_FILE), tls_mode=tls_mode,
+            tls_keyvault_name=tls_keyvault_name, allow_warden_profile=allow_warden,
+        )
+        validate_compose_egress_boundary(
+            app_dir / DAPP_DOCKER_COMPOSE,
+            allow_warden_host_access=shipped.get("egress_profile") == "warden",
+        )
+        source = pack_validation.source_tree(app_dir)
+        if registration_preflight:
+            pack_validation.validate_rebuild(
+                app_dir, repo_root_from_cwd() / "projects", profile, guest_image,
+                shipped.get("egress_profile") == "warden",
+                repo_root_from_cwd(),
+            )
+            caddyfile = read_required_text_file(app_dir / DAPP_CADDYFILE_TEMPLATE, "Caddyfile template")
+            guest_sites = pack_validation.guest_site_addresses(caddyfile)
+            if len(guest_sites) < 2:
+                raise ValueError("The guest launcher requires two separate Caddy site blocks: attestation first, API second (LF site headers)")
+            guest_hosts = [validate_attestation_domain_name(host) for host in guest_sites[:2]]
+            if caddyfile_site_hosts(caddyfile)[:2] != guest_hosts:
+                raise ValueError("CLI and guest disagree on Caddy site hosts; use one bare domain per site header")
+            address = f"https://{guest_hosts[1]}" if tls_mode != "internal" else "http://255.255.255.255"
+            version = selected_os["entry"]["release_version"] if selected_os else metadata.get("base_os_version", "")
+            if selected_os and metadata.get("base_os_version", version) != version:
+                raise ValueError("metadata.base_os_version disagrees with the selected OS release")
+            projected = pack_validation.projection(
+                metadata, address, guest_hosts[0], tls_mode, version=version,
+                os_key=selected_os["os_key"] if selected_os else "0" * 64,
+            )
+            pack_validation.validate_projection(projected, profile)
+        return {"profile": profile, "source": source, "shipped_metadata": shipped}
+    except (ValueError, UnicodeError, OSError, OutboundPolicyError) as error:
+        raise DeployerException(f"DApp packaging validation failed: {error}") from error
+
+
+@app.command("validate-dapp", rich_help_panel=COMMAND_PANEL_IMAGES)
+def validate_dapp(
+    app_dir: Annotated[Path, typer.Option(help="Application directory to validate")] = DEFAULT_APP_DIR,
+    tls_mode: Annotated[str, typer.Option(help="TLS mode used for packaging")] = "internal",
+    tls_keyvault_name: Annotated[Optional[str], typer.Option(help="Runtime TLS vault name, when using azure_vault")] = None,
+    guest_attestation_image: Annotated[Optional[str], typer.Option(help="Guest attestation image used for packaging")] = None,
+    allow_warden_egress_profile: Annotated[bool, typer.Option(help="Validate an operator Warden image's explicit egress profile")] = False,
+    registration_preflight: Annotated[bool, typer.Option("--registration-preflight/--no-registration-preflight", help="Check compatibility with Warden's fixed app-disk rebuild recipe")] = True,
+):
+    """Validate package inputs without downloading images or building a disk."""
+    metadata = load_app_source_metadata(app_dir)
+    mode = validate_tls_mode(tls_mode)
+    vault = resolve_packaging_tls_keyvault_name(
+        tls_mode=mode, app_dir=app_dir, app_name=metadata["name"], value=tls_keyvault_name
+    )
+    helper_image = resolve_guest_attestation_image(guest_attestation_image)
+    profile = local_registration_profile()
+    validate_dapp_packaging(
+        app_dir, metadata, tls_mode=mode, tls_keyvault_name=vault, guest_image=helper_image,
+        registration_preflight=registration_preflight, allow_warden=allow_warden_egress_profile,
+        profile=profile,
+    )
+    typer.echo(json.dumps({
+        "valid": True, "registration_preflight": registration_preflight,
+        "scope": "local_inputs", "os_registry_checked": False,
+        "azure_vault_availability_checked": False,
+    }, indent=2))
+
+
 def resolve_app_metadata_path(path: Optional[Path]) -> Path:
     if path is not None:
         return path
@@ -2333,7 +2424,7 @@ def read_required_text_file(path: Path, description: str) -> str:
     if not path.is_file():
         raise DeployerException(f"Required {description} not found: {path}")
 
-    return path.read_text()
+    return pack_validation.exact_text(path)
 
 
 def load_register_app_disk_files(app_dir: Path) -> dict:
@@ -2413,7 +2504,7 @@ def add_register_app_file_fields(payload: dict, app_source_dir: Path) -> list[Pa
         if not source_path.is_file():
             raise DeployerException(f"Required DApp app-disk file not found: {source_path}")
 
-        payload[field_name] = source_path.read_text()
+        payload[field_name] = read_required_text_file(source_path, relative_path.as_posix())
         included_files.append(source_path)
 
     return included_files
@@ -2434,7 +2525,7 @@ def read_register_app_metadata_json(metadata_file: Path, app_source_dir: Path) -
 
     # Registration must replay the exact policy measured into the app disk,
     # including normalized application and generated platform destinations.
-    return metadata_file.read_text()
+    return pack_validation.exact_text(metadata_file)
 
 
 def resolve_register_tls_mode(
@@ -3037,7 +3128,7 @@ def resolve_acr_name_for_packaging(metadata: dict, *, required: bool = True) -> 
 
 
 def deployable_vm_push_artifacts() -> List[str]:
-    return [
+    artifacts = [
         "disk.raw",
         "disk.img.vhd",
         "disk.img.vhd.source-raw.sha256",
@@ -3047,6 +3138,9 @@ def deployable_vm_push_artifacts() -> List[str]:
         APP_METADATA_FILE,
         TLS_MODE_FILE,
     ]
+    if (DAPP_OUTPUT_DIR / pack_validation.SNAPSHOT_FILE).is_file():
+        artifacts.append(pack_validation.SNAPSHOT_FILE)
+    return artifacts
 
 
 def base_os_push_artifacts() -> List[str]:
@@ -5003,12 +5097,29 @@ def register_app(
     log.info("Using DApp metadata from %s", metadata_file)
     log.info("Using DApp app-disk files from %s", app_source_dir)
     tls_mode = resolve_register_tls_mode(metadata_file, app_source_dir, tls_mode)
+    try:
+        input_snapshot = pack_validation.verify_snapshot(metadata_file, app_source_dir, tls_mode)
+    except (ValueError, KeyError, UnicodeError, OSError) as error:
+        raise DeployerException(f"Registration input drift: {error}") from error
     address = resolve_register_address(tls_mode, app_source_dir, address)
     attestation_domain_name = resolve_register_attestation_domain(
         tls_mode,
         app_source_dir,
         attestation_domain_name,
     )
+    if input_snapshot is not None:
+        if input_snapshot.get("registration_preflight") is False:
+            raise DeployerException("This operator image skipped registration preflight; repackage with --registration-preflight before registering it")
+        try:
+            version = input_snapshot["os_release_version"]
+            if base_os_version is not None and base_os_version.strip() != version:
+                raise ValueError("--base-os-version disagrees with the packaged OS release")
+            pack_validation.validate_projection(pack_validation.projection(
+                metadata, address, attestation_domain_name, tls_mode,
+                version=version, os_key=input_snapshot["os_key"],
+            ), local_registration_profile())
+        except (ValueError, KeyError, UnicodeError) as error:
+            raise DeployerException(f"Registration preflight failed: {error}") from error
     app_key = resolve_app_key(metadata_file, app_key)
     pcrs_path, policy_path = resolve_security_files(metadata_file)
     payload = {
@@ -5440,6 +5551,7 @@ def package_dapp_deployable_vm_image(
     guest_attestation_image: Annotated[Optional[str], typer.Option(help=f"Guest attestation helper image. Defaults to VERITEE_GUEST_ATTESTATION_IMAGE or {DEFAULT_GUEST_ATTESTATION_IMAGE}")] = None,
     verbose: Annotated[bool, typer.Option(help="Show full Earthly build logs")] = False,
     os_release_key: Annotated[Optional[str], typer.Option(help="Advanced override: accepted OS manifest SHA-256. Otherwise resolve metadata.base_os_image automatically.")] = None,
+    registration_preflight: Annotated[bool, typer.Option("--registration-preflight/--no-registration-preflight", help="Validate against Warden's rebuild recipe before packaging. Disable only for operator images not submitted for registration.")] = True,
 ):
     """Package a deployable VM image by extending a base Veritee OS image with a DApp."""
     if debug:
@@ -5449,9 +5561,26 @@ def package_dapp_deployable_vm_image(
 
     app_dir_path = Path(app_dir)
     metadata = load_app_source_metadata(app_dir_path)
+    tls_mode = prompt_tls_mode(tls_mode)
+    tls_keyvault_name = resolve_packaging_tls_keyvault_name(
+        tls_mode=tls_mode, app_dir=app_dir_path, app_name=metadata["name"], value=tls_keyvault_name,
+    )
+    guest_attestation_image = resolve_guest_attestation_image(guest_attestation_image)
+    profile = local_registration_profile()
+    validation = validate_dapp_packaging(
+        app_dir_path, metadata, tls_mode=tls_mode, tls_keyvault_name=tls_keyvault_name,
+        guest_image=guest_attestation_image, registration_preflight=registration_preflight,
+        allow_warden=allow_warden_egress_profile,
+        profile=profile,
+    )
     selected_os = os_release.resolve_selection(os_release_key, base_os_image=metadata["base_os_image"])
+    validate_dapp_packaging(
+        app_dir_path, metadata, tls_mode=tls_mode, tls_keyvault_name=tls_keyvault_name,
+        guest_image=guest_attestation_image, registration_preflight=registration_preflight,
+        allow_warden=allow_warden_egress_profile, profile=validation["profile"], selected_os=selected_os,
+    )
     selected_manifest = json.loads(selected_os["manifest"])
-    if metadata["base_os_image"] != selected_manifest["publication"]["reference"]:
+    if os_release.carrier_identity(metadata["base_os_image"]) != os_release.carrier_identity(selected_manifest["publication"]["reference"]):
         raise DeployerException("Project base_os_image disagrees with the selected accepted OS manifest")
     persist_size = resolve_persist_size(persist_size, metadata)
     acr_name = require_acr_name()
@@ -5469,17 +5598,9 @@ def package_dapp_deployable_vm_image(
     )
     log.info(f"DApp: {metadata['name']}")
     log.info(f"Description: {metadata['description']}")
-    tls_mode = prompt_tls_mode(tls_mode)
-    tls_keyvault_name = resolve_packaging_tls_keyvault_name(
-        tls_mode=tls_mode,
-        app_dir=app_dir_path,
-        app_name=metadata["name"],
-        value=tls_keyvault_name,
-    )
     log.info("TLS mode: %s", tls_mode)
     if tls_keyvault_name is not None:
         log.info("Key Vault: %s", tls_keyvault_name)
-    guest_attestation_image = resolve_guest_attestation_image(guest_attestation_image)
     print_quiet_earthly_hint()
 
     warn_if_anonymous_dockerhub_pull()
@@ -5515,6 +5636,15 @@ def package_dapp_deployable_vm_image(
         tls_keyvault_name=tls_keyvault_name,
         allow_warden_egress_profile=allow_warden_egress_profile,
     ) as (build_app_dir, shipped_metadata):
+        if pack_validation.source_tree(app_dir_path) != validation["source"]:
+            raise DeployerException("App source changed during packaging preflight; retry with stable inputs")
+        staged_source = pack_validation.source_tree(Path(build_app_dir))
+        expected_files = dict(validation["source"]["files"])
+        expected_files[APP_METADATA_FILE] = pack_validation.file_hash(Path(build_app_dir) / APP_METADATA_FILE)
+        if (staged_source["files"] != expected_files
+                or staged_source["directories"] != validation["source"]["directories"]
+                or shipped_metadata != validation["shipped_metadata"]):
+            raise DeployerException("App source changed while staging; retry with stable inputs")
         preflight_check_earthly_copy_sources(
             EARTHLY_EXTEND_OS_TARGET,
             {
@@ -5581,6 +5711,15 @@ def package_dapp_deployable_vm_image(
     )
     write_app_metadata(vm_image_output_dir, shipped_metadata)
     write_tls_mode(vm_image_output_dir, tls_mode)
+    snapshot = pack_validation.make_snapshot(
+        app_dir_path, (vm_image_output_dir / APP_METADATA_FILE).read_bytes(), tls_mode,
+        guest_attestation_image, application_root_hash, pcr4, selected_os,
+        validation["profile"], source_record=validation["source"],
+    )
+    snapshot["registration_preflight"] = registration_preflight
+    snapshot_path = vm_image_output_dir / pack_validation.SNAPSHOT_FILE
+    write_json(snapshot_path, snapshot)
+    snapshot_path.chmod(0o600)
     log.info(color_text(
         f" ✓ Wrote metadata, TLS mode, policy template, application root hash, and PCR measurements to {DAPP_OUTPUT_DIR}/", COLOR_GREEN))
 
@@ -6159,6 +6298,10 @@ def create_vm(
     metadata_file = metadata_dir / APP_METADATA_FILE
     tls_mode_path = metadata_dir / TLS_MODE_FILE
     tls_mode = read_tls_mode_file(tls_mode_path) if tls_mode_path.is_file() else "internal"
+    try:
+        pack_validation.verify_snapshot(metadata_file, None, tls_mode)
+    except (ValueError, KeyError, UnicodeError, OSError) as error:
+        raise DeployerException(f"Deployment input drift: {error}") from error
     if hydrate_policy:
         attestation_domain_name = resolve_optional_deployment_attestation_domain(
             metadata_file,
@@ -6168,7 +6311,7 @@ def create_vm(
             hydrate_policy = False
     if sys.stdin.isatty():
         log.info("Press Enter to accept the suggested value in [brackets], or type a different one.")
-    packaged_tls_keyvault_name = metadata.get("tls_keyvault_name")
+    packaged_tls_keyvault_name = load_json_file(metadata_file).get("tls_keyvault_name")
     if packaged_tls_keyvault_name is not None:
         if not isinstance(packaged_tls_keyvault_name, str):
             raise DeployerException(
