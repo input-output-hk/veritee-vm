@@ -121,7 +121,7 @@ failures only; other setup failures still prevent the DApp from starting.
 
 Packaging is **not** a plain `docker build`. Veritee pulls a **base Veritee OS image** and an **application container image** from Azure Container Registry, embeds the app into dm-verity partitions on an Azure SNP-ready VM image, and generates TEE metadata (application root hash and PCR4) used for attestation.
 
-Configure your DApp in `projects/dapp/metadata.json`:
+Configure your DApp in `examples/dapp/metadata.json`:
 
 ```json
 {
@@ -393,7 +393,7 @@ required:
 
 ```bash
 veritee package-dapp-deployable-vm-image \
-  --app-dir projects/dapp \
+  --app-dir examples/dapp \
   --tls-mode internal
 ```
 
@@ -415,7 +415,7 @@ Upload the certificate material before packaging/deploying:
 
 ```bash
 veritee upload-tls-certs \
-  --app-dir projects/dapp \
+  --app-dir examples/dapp \
   --fullchain /path/to/fullchain.pem \
   --privkey /path/to/privkey.pem
 ```
@@ -430,7 +430,7 @@ Then package and deploy with the same TLS mode:
 
 ```bash
 veritee package-dapp-deployable-vm-image \
-  --app-dir projects/dapp \
+  --app-dir examples/dapp \
   --tls-mode azure_vault
 
 veritee create-vm --azuresnp

@@ -1,0 +1,25 @@
+{
+  # The guest helper reads TLS evidence through Caddy's private control API.
+  admin caddy-in-constrained-attestation-generator-network:2019
+}
+
+attestation.proofserver.preprod.example.test {
+	bind 0.0.0.0
+	root * /srv
+	handle_path /tee_attestation* {
+		reverse_proxy attestation:8000
+	}
+	file_server
+	{{ATTESTATION_TLS}}
+}
+
+api.proofserver.preprod.example.test {
+	bind 0.0.0.0
+	{{APP_TLS}}
+	reverse_proxy {$APP_UPSTREAM}
+}
+
+# Keep the host's attested requests on the same private upstream as HTTPS.
+http://:8080 {
+	reverse_proxy {$APP_UPSTREAM}
+}

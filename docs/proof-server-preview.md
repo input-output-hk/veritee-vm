@@ -18,7 +18,7 @@ Package through the normal CLI, supplying the operator's vault name privately:
 
 ```sh
 veritee package-dapp-deployable-vm-image \
-  --app-dir projects/proof_server_preview \
+  --app-dir examples/proof_server_preview \
   --persist-size 2G \
   --tls-mode azure_vault \
   --tls-keyvault-name "$PREVIEW_TLS_VAULT" \

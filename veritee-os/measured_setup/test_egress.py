@@ -568,7 +568,7 @@ class StaticFirewallTests(unittest.TestCase):
     def test_warden_uses_azure_dns_for_non_proxy_aware_clients(self):
         compose = (
             self.repo_root
-            / "projects/warden/run.d/docker-compose.yml"
+            / "examples/warden/run.d/docker-compose.yml"
         ).read_text()
 
         self.assertIn("dns:\n      - 168.63.129.16", compose)
@@ -576,19 +576,19 @@ class StaticFirewallTests(unittest.TestCase):
     def test_warden_routes_earthly_buildkit_through_the_builder_network(self):
         compose = (
             self.repo_root
-            / "projects/warden/run.d/docker-compose.yml"
+            / "examples/warden/run.d/docker-compose.yml"
         ).read_text()
         earthly_config = (
             self.repo_root
-            / "projects/warden/run.d/earthly-config.yml"
+            / "examples/warden/run.d/earthly-config.yml"
         ).read_text()
         earthly_args = (
             self.repo_root
-            / "projects/warden/run.d/earthly-proxy.arg"
+            / "examples/warden/run.d/earthly-proxy.arg"
         ).read_text()
         earthfile = (self.repo_root / "Earthfile").read_text()
         run_script = (
-            self.repo_root / "projects/warden/run.d/main"
+            self.repo_root / "examples/warden/run.d/main"
         ).read_text()
 
         self.assertIn(
@@ -632,11 +632,11 @@ class StaticFirewallTests(unittest.TestCase):
 
     def test_warden_persists_earthly_cache_outside_docker_tmpfs(self):
         run_script = (
-            self.repo_root / "projects/warden/run.d/main"
+            self.repo_root / "examples/warden/run.d/main"
         ).read_text()
         metadata = json.loads(
             (
-                self.repo_root / "projects/warden/metadata.json"
+                self.repo_root / "examples/warden/metadata.json"
             ).read_text()
         )
 
@@ -725,7 +725,8 @@ class StaticFirewallTests(unittest.TestCase):
         )
     def test_compose_files_do_not_give_dapps_a_routable_egress_bridge(self):
         compose_files = sorted(
-            (self.repo_root / "projects").glob("*/run.d/docker-compose.yml")
+            path for source in (self.repo_root / "examples", self.repo_root / "projects")
+            for path in source.glob("*/run.d/docker-compose.yml")
         )
         self.assertTrue(compose_files)
         for compose_file in compose_files:

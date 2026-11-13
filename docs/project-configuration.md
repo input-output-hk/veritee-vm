@@ -1,8 +1,41 @@
 # Configuring a DApp project
 
-Copy `projects/dapp` to `projects/<name>` and select it with `--app-dir`.
-Set the application name, image and approved base OS in `metadata.json`.
+Copy `examples/dapp` to an application folder, including outside this checkout.
+Set the application name and digest-pinned application/approved base OS image
+references in `metadata.json`; the reference app's placeholder images need
+replacing before validation.
 Configure the app's command, environment and volumes in the Compose `app` service.
+
+`projects/proof_server_preprod` is a complete proof-server project with pinned
+images and `/check` and `/prove` enabled for the attested proxy. Replace its
+example hostnames before deploying it.
+
+From the Veritee checkout:
+
+```sh
+cp -a examples/dapp ../my-app
+# Edit ../my-app/metadata.json and its run.d files.
+veritee validate-dapp --app-dir ../my-app --tls-mode internal
+veritee package-dapp-deployable-vm-image --app-dir ../my-app --tls-mode internal
+veritee register-app --app-dir ../my-app --metadata-path local-azure-snp/metadata.json
+```
+
+Absolute paths work too. Relative paths resolve from the caller's directory;
+the default app resolves to the checkout's `examples/dapp`. Build commands run
+against the checkout's Earthfile and write their usual checkout-local outputs.
+Registration requires the explicit `--app-dir` used for packaging.
+
+The CLI stages external files inside the checkout build context. Partition
+definitions and fallback hooks come only from `veritee-os/app-disk/`, never the
+application's parent. Apps need no sibling `.conf` files or copied hooks; source
+hooks still override the fallback hooks. Root `.git` metadata (a directory or
+worktree pointer) and generated `run.d/certs/` files are excluded consistently
+from staging, validation and input snapshots. Other source files remain subject
+to Warden's existing submitted-file/rebuild boundary.
+
+Using the CLI without a Veritee checkout is not supported. Direct Earthly
+invocations still require an app path inside their build context; use the CLI
+for an external app folder.
 
 In `run.d/Caddyfile.template`, replace the attestation and API hostnames.
 Set the application's container port once, in the Compose `caddy` service.
@@ -35,3 +68,10 @@ Outbound connections use the separate measured egress policy declared in
 Package and register with the same project files. Keep operator notes, test
 harnesses and documentation under `docs/` or elsewhere outside the project;
 files placed inside a project can change its measured application root.
+
+When updating a Warden's bundled VM checkout to this layout, its
+`run_deployer_app_disk` template argument in `src/routes/os.rs` must change from
+`projects/dapp` to `examples/dapp`, alongside the bundled VM revision pin. Its
+temporary override folder and `build-app-disk --app-dir <folder>` invocation
+remain supported. The registration protocol still submits only metadata,
+Caddyfile and Compose. This layout change does not update a running Warden.

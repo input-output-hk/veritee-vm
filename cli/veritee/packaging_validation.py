@@ -41,7 +41,8 @@ def exact_text(path):
 
 
 def excluded_path(relative):
-    return relative == GENERATED_CERTS or relative.startswith(GENERATED_CERTS + "/")
+    return (relative == GENERATED_CERTS or relative.startswith(GENERATED_CERTS + "/")
+            or relative == ".git" or relative.startswith(".git/"))
 
 
 def source_tree(directory):
@@ -77,7 +78,7 @@ def conf_files(parent):
 
 def local_profile(repository, guest_image):
     repository = Path(repository)
-    template = source_tree(repository / "projects/dapp")
+    template = source_tree(repository / "examples/dapp")
     return {
         "version": PROFILE_VERSION,
         "app_details": registration_limits(),
@@ -86,12 +87,12 @@ def local_profile(repository, guest_image):
             "allow_warden_egress_profile": False,
             "fixed_files": {p: h for p, h in template["files"].items() if p not in OVERRIDDEN_FILES},
             "directories": template["directories"],
-            "repart_files": conf_files(repository / "projects"),
+            "repart_files": conf_files(repository / "veritee-os/app-disk"),
             "fallback_scripts": {
-                p: file_hash(repository / "projects/templates" / p)
+                p: file_hash(repository / "veritee-os/app-disk" / p)
                 for p in ("run.d/main", "setup.d/main")
             },
-            "excluded_paths": [GENERATED_CERTS],
+            "excluded_paths": [GENERATED_CERTS, ".git"],
         },
     }
 
@@ -170,7 +171,7 @@ def guest_site_addresses(caddyfile):
     return result
 
 
-def validate_rebuild(source, source_parent, profile, guest_image, allow_warden, repository):
+def validate_rebuild(source, platform_dir, profile, guest_image, allow_warden, repository):
     rebuild = profile["rebuild"]
     if image_identity(guest_image) != image_identity(rebuild["guest_attestation_image"]):
         raise ValueError("Guest attestation image differs from the Warden's bundled rebuild pin")
@@ -191,10 +192,10 @@ def validate_rebuild(source, source_parent, profile, guest_image, allow_warden, 
     allowed_dirs = set(rebuild["directories"]) | {"run.d", "setup.d"}
     if set(actual["directories"]) - allowed_dirs:
         raise ValueError("Warden cannot reproduce extra app directories: " + ", ".join(sorted(set(actual["directories"]) - allowed_dirs)))
-    if conf_files(source_parent) != rebuild["repart_files"]:
+    if conf_files(platform_dir) != rebuild["repart_files"]:
         raise ValueError("App repart definitions differ from the Warden rebuild recipe")
     for path, digest in fallbacks.items():
-        if file_hash(Path(repository) / "projects/templates" / path) != digest:
+        if file_hash(Path(repository) / "veritee-os/app-disk" / path) != digest:
             raise ValueError(f"Local default script differs from Warden's recipe: {path}")
     return actual
 

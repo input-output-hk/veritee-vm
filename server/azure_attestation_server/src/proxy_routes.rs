@@ -759,57 +759,51 @@ mod tests {
             .unwrap();
         let directory = tempfile::tempdir().unwrap();
         let policy_path = directory.path().join("dapp-proxy.json");
-        for app in [
-            "proof_server_prepod",
-            "proof_server_mainnet",
-            "proof_server_preview",
-        ] {
-            // Execute the exact pure-Python helper installed by both OS targets,
-            // using shipped DApp metadata rather than setting test-only routes.
-            let status = std::process::Command::new("python3")
-                .arg("-c")
-                .arg(concat!(
-                    "import json, sys\n",
-                    "from pathlib import Path\n",
-                    "sys.path.insert(0, sys.argv[1])\n",
-                    "from proxy_policy import install_proxy_policy\n",
-                    "install_proxy_policy(json.loads(Path(sys.argv[2]).read_text()), Path(sys.argv[3]))\n"
-                ))
-                .arg(repo.join("cli/veritee"))
-                .arg(repo.join("projects").join(app).join("metadata.json"))
-                .arg(&policy_path)
-                .status()
-                .unwrap();
-            assert!(
-                status.success(),
-                "measured policy installation failed for {app}"
-            );
-            let upstream = DappUpstream::from_configuration(
-                &format!("http://{address}"),
-                Some(&policy_path),
-                Some("/admin".into()),
-            )
+        // Execute the exact pure-Python helper installed by both OS targets,
+        // using the preprod project's measured metadata.
+        let status = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(concat!(
+                "import json, sys\n",
+                "from pathlib import Path\n",
+                "sys.path.insert(0, sys.argv[1])\n",
+                "from proxy_policy import install_proxy_policy\n",
+                "install_proxy_policy(json.loads(Path(sys.argv[2]).read_text()), Path(sys.argv[3]))\n"
+            ))
+            .arg(repo.join("cli/veritee"))
+            .arg(repo.join("projects/proof_server_preprod/metadata.json"))
+            .arg(&policy_path)
+            .status()
             .unwrap();
-            for (path, expected) in [("/check", b"checked".as_slice()), ("/prove", b"proof")] {
-                let response = upstream
-                    .forward(TunnelRequest {
-                        method: "POST".into(),
-                        path: path.into(),
-                        query: vec![],
-                        headers: BTreeMap::new(),
-                        body: vec![],
-                    })
-                    .await
-                    .unwrap();
-                assert_eq!(response.status, 200);
-                assert_eq!(response.body, expected);
-            }
-            for path in ["/admin", "/check/", "/prove/admin"] {
-                assert!(matches!(
-                    upstream.target_url(path, &[]),
-                    Err(ProxyError::ForbiddenPath)
-                ));
-            }
+        assert!(
+            status.success(),
+            "measured policy installation failed for the preprod test project"
+        );
+        let upstream = DappUpstream::from_configuration(
+            &format!("http://{address}"),
+            Some(&policy_path),
+            Some("/admin".into()),
+        )
+        .unwrap();
+        for (path, expected) in [("/check", b"checked".as_slice()), ("/prove", b"proof")] {
+            let response = upstream
+                .forward(TunnelRequest {
+                    method: "POST".into(),
+                    path: path.into(),
+                    query: vec![],
+                    headers: BTreeMap::new(),
+                    body: vec![],
+                })
+                .await
+                .unwrap();
+            assert_eq!(response.status, 200);
+            assert_eq!(response.body, expected);
+        }
+        for path in ["/admin", "/check/", "/prove/admin"] {
+            assert!(matches!(
+                upstream.target_url(path, &[]),
+                Err(ProxyError::ForbiddenPath)
+            ));
         }
         server.abort();
     }

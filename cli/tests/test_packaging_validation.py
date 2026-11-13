@@ -16,6 +16,7 @@ from veritee import packaging_validation as validation
 
 
 ROOT = Path(__file__).resolve().parents[2]
+TEST_PROJECT = ROOT / "projects/proof_server_preprod"
 
 
 class PackagingValidationTests(unittest.TestCase):
@@ -24,7 +25,8 @@ class PackagingValidationTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)
         self.app = self.directory / "app"
-        shutil.copytree(ROOT / "projects/dapp", self.app)
+        shutil.copytree(TEST_PROJECT, self.app)
+        (self.app / "run.d/certs").mkdir()
         self.metadata = {
             "name": "Test DApp", "description": "Test",
             "app_container_image": "registry.example/app@sha256:" + "a" * 64,
@@ -101,7 +103,7 @@ class PackagingValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(cli.DeployerException, "cannot reproduce app file README.md"):
             self.check()
         (self.app / "README.md").unlink()
-        (self.app / "run.d/main").write_bytes((ROOT / "projects/templates/run.d/main").read_bytes())
+        (self.app / "run.d/main").write_bytes((ROOT / "veritee-os/app-disk/run.d/main").read_bytes())
         self.check()
         (self.app / "run.d/main").write_text("custom startup")
         with self.assertRaisesRegex(cli.DeployerException, "cannot reproduce app file run.d/main"):
@@ -255,7 +257,7 @@ class PackagingValidationTests(unittest.TestCase):
         post.assert_not_called()
 
     def test_guest_parser_matches_actual_released_awk_including_crlf(self):
-        script = (ROOT / "projects/templates/run.d/main").read_text()
+        script = (ROOT / "veritee-os/app-disk/run.d/main").read_text()
         awk = script.split("site_host() {", 1)[1].split("awk '", 1)[1].split("' Caddyfile.template", 1)[0]
         for caddy in ("a.example {\n}\nb.example {\n}\n", "a.example {\r\n}\r\nb.example {\r\n}\r\n",
                       "{\n  auto_https off\n}\n# note\na.example, x.example {\n}\nb.example { # comment\n}\n"):
@@ -334,6 +336,8 @@ class PackagingValidationTests(unittest.TestCase):
         before = Path.cwd()
         os.chdir(self.directory)
         self.addCleanup(os.chdir, before)
+        shutil.copytree(TEST_PROJECT, self.directory / cli.DEFAULT_APP_DIR)
+        shutil.copytree(ROOT / "veritee-os/app-disk", self.directory / "veritee-os/app-disk")
         events = []
         def build(command, **kwargs):
             events.append("build")
@@ -344,7 +348,7 @@ class PackagingValidationTests(unittest.TestCase):
             (output / "pcrs.json").write_text(json.dumps({"application_root_hash": "c" * 64, "measurements": {"4": "d" * 64}}))
             return "fixture build output"
         with ExitStack() as patches:
-            patches.enter_context(mock.patch.object(cli, "repo_root_from_cwd", return_value=ROOT))
+            patches.enter_context(mock.patch.object(cli, "repo_root_from_cwd", return_value=self.directory))
             network = patches.enter_context(mock.patch.object(cli.requests, "get", side_effect=AssertionError("no extra Warden validation calls")))
             patches.enter_context(mock.patch.object(cli.os_release, "resolve_selection", side_effect=lambda *a, **k: events.append("os") or selected))
             patches.enter_context(mock.patch.object(cli.os_release, "pull_selected", side_effect=lambda *a: events.append("pull")))
