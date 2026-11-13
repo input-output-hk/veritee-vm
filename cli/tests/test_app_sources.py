@@ -14,6 +14,7 @@ from veritee import cli, packaging_validation as validation
 
 
 ROOT = Path(__file__).resolve().parents[2]
+TEST_PROJECT = ROOT / "projects/proof_server_preprod"
 
 
 @contextmanager
@@ -32,7 +33,8 @@ class ExternalAppSourceTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
         self.source = self.directory / "application"
-        shutil.copytree(ROOT / "examples/dapp", self.source)
+        shutil.copytree(TEST_PROJECT, self.source)
+        (self.source / "run.d/certs").mkdir()
         self.metadata = {
             "name": "External app", "description": "External folder fixture",
             "app_container_image": "registry.example/app@sha256:" + "a" * 64,

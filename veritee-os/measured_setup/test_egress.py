@@ -725,7 +725,8 @@ class StaticFirewallTests(unittest.TestCase):
         )
     def test_compose_files_do_not_give_dapps_a_routable_egress_bridge(self):
         compose_files = sorted(
-            (self.repo_root / "examples").glob("*/run.d/docker-compose.yml")
+            path for source in (self.repo_root / "examples", self.repo_root / "projects")
+            for path in source.glob("*/run.d/docker-compose.yml")
         )
         self.assertTrue(compose_files)
         for compose_file in compose_files:

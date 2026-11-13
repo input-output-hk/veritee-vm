@@ -156,11 +156,11 @@ jobs:
           docker run --rm --entrypoint python guest-attestation:ci -c 'import cryptography, requests'
           docker run --rm --entrypoint tpm2_quote guest-attestation:ci --version
 
-      - name: Test the generic DApp host proxy hop and private network
+      - name: Test the preprod project host proxy hop and private network
         run: |
           python -m pip install PyYAML==6.0
-          python scripts/test-dapp-proxy-hop.py --app-dir examples/dapp
-          python scripts/test-dapp-proxy-hop.py --app-dir examples/dapp --app-port 6300
+          python scripts/test-dapp-proxy-hop.py --app-dir projects/proof_server_preprod
+          python scripts/test-dapp-proxy-hop.py --app-dir projects/proof_server_preprod --app-port 80
 
   attestation-server-build:
     name: Attestation server (compile check)

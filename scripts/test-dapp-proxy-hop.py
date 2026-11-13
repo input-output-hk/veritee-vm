@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the generic DApp's host proxy hop with real Docker networking."""
+"""Exercise a DApp project's host proxy hop with real Docker networking."""
 
 import argparse
 import json
@@ -19,8 +19,8 @@ CADDY = "caddy@sha256:25cdc846626b62d05f6b633b9b40c2c9f6ef89b515dc76133cefd920f7
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--app-dir", type=Path, default=ROOT / "examples/dapp")
-    parser.add_argument("--app-port", type=int, choices=(80, 6300), default=80)
+    parser.add_argument("--app-dir", type=Path, default=ROOT / "projects/proof_server_preprod")
+    parser.add_argument("--app-port", type=int, choices=(80, 6300), default=6300)
     args = parser.parse_args()
     authored = yaml.safe_load((args.app_dir / "run.d/docker-compose.yml").read_text())
     project = "veritee-proxy-test-" + uuid.uuid4().hex[:10]

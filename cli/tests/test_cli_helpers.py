@@ -18,6 +18,7 @@ from veritee import cli
 from typer.testing import CliRunner
 
 cli.log.setLevel(logging.CRITICAL)
+TEST_PROJECT = Path(__file__).resolve().parents[2] / "projects/proof_server_preprod"
 
 
 class FakeResponse:
@@ -154,7 +155,7 @@ class RegistrationInputTests(unittest.TestCase):
                     cli.validate_attestation_domain_name(value)
 
     def test_load_register_app_disk_files_reads_selected_app_dir(self):
-        app_dir = Path("examples/dapp")
+        app_dir = TEST_PROJECT
 
         self.assertEqual(
             cli.load_register_app_disk_files(app_dir),
@@ -206,18 +207,18 @@ class RegistrationInputTests(unittest.TestCase):
             )
 
     def test_default_attestation_domain_from_caddyfile_uses_first_site_host(self):
-        caddyfile = Path("examples/dapp/run.d/Caddyfile.template").read_text()
+        caddyfile = (TEST_PROJECT / "run.d/Caddyfile.template").read_text()
 
         self.assertEqual(
             cli.default_attestation_domain_from_caddyfile(caddyfile),
-            "attestation-endpoint.api.mydapp.midnight.io",
+            "attestation.proofserver.preprod.example.test",
         )
 
     def test_generic_template_shared_upstream_keeps_both_tls_hostnames(self):
-        caddyfile = Path("examples/dapp/run.d/Caddyfile.template")
+        caddyfile = TEST_PROJECT / "run.d/Caddyfile.template"
         expected = [
-            "attestation-endpoint.api.mydapp.midnight.io",
-            "api.mydapp.midnight.io",
+            "attestation.proofserver.preprod.example.test",
+            "api.proofserver.preprod.example.test",
         ]
         self.assertEqual(cli.caddyfile_site_hosts(caddyfile), expected)
 
@@ -261,7 +262,7 @@ class RegistrationInputTests(unittest.TestCase):
             root = Path(tmpdir)
             metadata_file = root / "metadata.json"
             metadata_file.write_text(
-                Path("examples/dapp/metadata.json").read_text()
+                (TEST_PROJECT / "metadata.json").read_text()
             )
             app_source_root = root / "examples"
             app_source_root.mkdir()
@@ -282,27 +283,29 @@ class RegistrationInputTests(unittest.TestCase):
             )
 
     def test_caddyfile_site_hosts_ignores_global_options_block(self):
-        caddyfile = Path("examples/recovery-proverd/run.d/Caddyfile.template").read_text()
+        caddyfile = (TEST_PROJECT / "run.d/Caddyfile.template").read_text()
 
         self.assertEqual(
             cli.caddyfile_site_hosts(caddyfile),
             [
-                "attestation-endpoint.api.recovery-proverd.midnight.io",
-                "api.recovery-proverd.midnight.io",
+                "attestation.proofserver.preprod.example.test",
+                "api.proofserver.preprod.example.test",
             ],
         )
 
     def test_single_caddy_site_is_both_attestation_and_api_host(self):
-        app_dir = Path("examples/warden")
-
-        self.assertEqual(
-            cli.default_register_attestation_domain("azure_vault", app_dir),
-            "warden.wastedp.io",
-        )
-        self.assertEqual(
-            cli.default_register_address("azure_vault", app_dir),
-            "https://warden.wastedp.io",
-        )
+        with tempfile.TemporaryDirectory() as directory:
+            app_dir = Path(directory)
+            (app_dir / "run.d").mkdir()
+            (app_dir / cli.DAPP_CADDYFILE_TEMPLATE).write_text("warden.example.test {\n}\n")
+            self.assertEqual(
+                cli.default_register_attestation_domain("azure_vault", app_dir),
+                "warden.example.test",
+            )
+            self.assertEqual(
+                cli.default_register_address("azure_vault", app_dir),
+                "https://warden.example.test",
+            )
 
 
 class AppBuildSourceTests(unittest.TestCase):

@@ -16,6 +16,7 @@ from veritee import packaging_validation as validation
 
 
 ROOT = Path(__file__).resolve().parents[2]
+TEST_PROJECT = ROOT / "projects/proof_server_preprod"
 
 
 class PackagingValidationTests(unittest.TestCase):
@@ -24,7 +25,8 @@ class PackagingValidationTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)
         self.app = self.directory / "app"
-        shutil.copytree(ROOT / "examples/dapp", self.app)
+        shutil.copytree(TEST_PROJECT, self.app)
+        (self.app / "run.d/certs").mkdir()
         self.metadata = {
             "name": "Test DApp", "description": "Test",
             "app_container_image": "registry.example/app@sha256:" + "a" * 64,
@@ -334,7 +336,7 @@ class PackagingValidationTests(unittest.TestCase):
         before = Path.cwd()
         os.chdir(self.directory)
         self.addCleanup(os.chdir, before)
-        shutil.copytree(ROOT / "examples/dapp", self.directory / "examples/dapp")
+        shutil.copytree(TEST_PROJECT, self.directory / cli.DEFAULT_APP_DIR)
         shutil.copytree(ROOT / "veritee-os/app-disk", self.directory / "veritee-os/app-disk")
         events = []
         def build(command, **kwargs):

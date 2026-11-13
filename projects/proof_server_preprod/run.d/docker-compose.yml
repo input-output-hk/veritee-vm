@@ -1,6 +1,5 @@
 services:
   guest-attestation:
-    # Collect boot and TLS evidence for Caddy to serve from /srv.
     image: guest-attestation
     restart: "no"
     env_file:
@@ -16,12 +15,16 @@ services:
   caddy:
     image: caddy
     restart: unless-stopped
+    environment:
+      APP_UPSTREAM: "app:6300"
     extra_hosts:
       - "attestation:host-gateway"
     ports:
       - "80:80"
       - "443:443"
       - "443:443/udp"
+      # The attestation server uses this loopback listener to reach the app.
+      - "127.0.0.1:8080:8080"
     volumes:
       - ./Caddyfile.generated:/etc/caddy/Caddyfile:ro
       - ${TEMENOS_TLS_CERTS_DIR:-./certs}:/certs:ro
@@ -31,7 +34,6 @@ services:
     networks:
       internet-access: {}
       constrained-attestation:
-        # Bind the control API to this private network.
         aliases:
           - caddy-in-constrained-attestation-generator-network
       constrained-app: {}
@@ -39,40 +41,25 @@ services:
   app:
     image: dapp:tee
     restart: unless-stopped
-    # Loopback-only publish for the host attestation server's decrypt-and-forward
-    # /proxy hop (DAPP_UPSTREAM_URL=http://127.0.0.1:8080).
-    ports:
-      - "127.0.0.1:8080:80"
     environment:
-      DATABASE_HOST: testnet-db.c2heoqe4wu9a.us-east-1.rds.amazonaws.com
-      DATABASE_PORT: "5432"
+      ATTESTATION_SERVER_URL: "http://attestation:8000"
+    extra_hosts:
+      - "attestation:host-gateway"
     networks:
       - constrained-app
-    
+
 volumes:
   caddy_data:
   caddy_config:
   static_attestation:
 
-
 networks:
-  # Only Caddy is exposed inbound. The DApp remains on an internal network and
-  # reaches measured destinations through the host egress proxy.
-  # The Caddy admin endpoint remains visible only to guest-attestation.
-  
-  # internet access has not the "internal: true" attribute so it will be exposed to the internet
-  # only caddy is in this network
+  # Caddy publishes ingress; the app and evidence helper remain private.
   internet-access:
     driver: bridge
-
-  # Network with the guest-attestation and caddy.
-  # No internet access
   constrained-attestation:
     driver: bridge
     internal: true
-
-  # Network with the app and caddy.
-  # No internet access
   constrained-app:
     driver: bridge
     internal: true

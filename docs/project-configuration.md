@@ -6,6 +6,10 @@ references in `metadata.json`; the reference app's placeholder images need
 replacing before validation.
 Configure the app's command, environment and volumes in the Compose `app` service.
 
+`projects/proof_server_preprod` is a complete proof-server project with pinned
+images and `/check` and `/prove` enabled for the attested proxy. Replace its
+example hostnames before deploying it.
+
 From the Veritee checkout:
 
 ```sh

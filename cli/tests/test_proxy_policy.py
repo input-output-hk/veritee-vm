@@ -38,16 +38,14 @@ class ProxyPolicyTests(unittest.TestCase):
                 self.assertEqual(os.stat(output).st_mode & 0o777, 0o600)
 
     def test_proof_app_routes_are_preserved_by_packaging(self):
-        for app in ("proof_server_prepod", "proof_server_mainnet", "proof_server_preview"):
-            with self.subTest(app=app):
-                source = REPO_ROOT / "examples" / app / "metadata.json"
-                original = source.read_bytes()
-                metadata = json.loads(original)
-                packaged = prepare_shipped_metadata(
-                    metadata, tls_mode="internal", tls_keyvault_name=None
-                )
-                self.assertEqual(packaged["proxy_allowed_paths"], ["/check", "/prove"])
-                self.assertEqual(source.read_bytes(), original)
+        source = REPO_ROOT / "projects/proof_server_preprod/metadata.json"
+        original = source.read_bytes()
+        metadata = json.loads(original)
+        packaged = prepare_shipped_metadata(
+            metadata, tls_mode="internal", tls_keyvault_name=None
+        )
+        self.assertEqual(packaged["proxy_allowed_paths"], ["/check", "/prove"])
+        self.assertEqual(source.read_bytes(), original)
 
     def test_invalid_routes_fail_cli_and_packaging(self):
         invalid = [

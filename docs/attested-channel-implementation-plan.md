@@ -299,8 +299,8 @@ without a TPM.
   `multi-user.target.wants/attestation_server.service` (and azure-provisioning).
 - **Epoch key-gen timing:** at **process start** (systemd), not in `measured-setup`. Each
   boot increments a persisted counter in `/var/lib/attestation_server/epoch`.
-- **Host → DApp hop (D3):** app containers publish **loopback-only** `127.0.0.1:8080:80`
-  (`examples/dapp` and `tee-rollup` compose files). The host attestation server's
+- **Host → DApp hop (D3):** Caddy publishes **loopback-only** `127.0.0.1:8080:8080`
+  and forwards to the app's private network. The host attestation server's
   port `8000` is accepted only from Docker bridge interfaces and is not exposed by the
   Azure NSG; public attestation and AKX traffic enters through Caddy on port `443`.
 - On-CVM end-to-end validation with the real attester remains a deployment checklist item

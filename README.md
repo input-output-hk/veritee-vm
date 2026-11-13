@@ -62,6 +62,7 @@ Veritee is split across several repositories:
 | `services/` | systemd units installed into the base OS image. |
 | `veritee-os/app-disk/` | Platform partition definitions and default setup/startup hooks. |
 | `examples/` | Example applications; `examples/dapp` is the small default reference app. |
+| `projects/` | DApp projects, including the preprod proof server. |
 | `docs/` | Design notes and runbooks. |
 | `Earthfile` | Build targets for the base OS image, the deployable VM image and the guest binaries. |
 
