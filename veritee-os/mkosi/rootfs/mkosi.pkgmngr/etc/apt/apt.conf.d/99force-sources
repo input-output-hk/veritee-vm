@@ -1,3 +1,3 @@
 Dir::Etc::sourcelist "sources.list";
-Dir::Etc::sourceparts "sources.list.d.extra";
+Dir::Etc::sourceparts "sources.list.d";
 Acquire::Check-Valid-Until "false";

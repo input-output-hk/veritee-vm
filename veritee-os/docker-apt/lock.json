@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "snapshot_date": "2026-11-11",
+  "upstream": {
+    "url": "https://download.docker.com/linux/ubuntu/",
+    "suite": "jammy",
+    "index_path": "stable/binary-amd64/Packages.gz",
+    "signing_key_fingerprint": "9DC858229FC7DD38854AE2D88D81803C0EBFCD88",
+    "keyring_sha256": "a09e26b72228e330d55bf134b8eaca57365ef44bf70b8e27c5f55ea87a8b05e2"
+  },
+  "metadata_sha256": {
+    "InRelease": "6c9959ba04a613bd690ef19b6273bbb3b2081eb5e8284185da0a33d0eea87182",
+    "Packages.gz": "46766b196e12f22c2741e8fcb0718f189b831326721d5f323301a53fed26a77d"
+  },
+  "packages": [
+    {
+      "name": "containerd.io",
+      "version": "2.2.1-1~ubuntu.22.04~jammy",
+      "architecture": "amd64",
+      "filename": "containerd.io_2.2.1-1~ubuntu.22.04~jammy_amd64.deb",
+      "upstream_path": "dists/jammy/pool/stable/amd64/containerd.io_2.2.1-1~ubuntu.22.04~jammy_amd64.deb",
+      "sha256": "340edaa90ba979ab05a7900c2aeb99a118eaa94e35dc2efd876648f93d6cc10d",
+      "size": 23383772
+    },
+    {
+      "name": "docker-ce",
+      "version": "5:29.2.1-1~ubuntu.22.04~jammy",
+      "architecture": "amd64",
+      "filename": "docker-ce_29.2.1-1~ubuntu.22.04~jammy_amd64.deb",
+      "upstream_path": "dists/jammy/pool/stable/amd64/docker-ce_29.2.1-1~ubuntu.22.04~jammy_amd64.deb",
+      "sha256": "547dc4e79e84332250cb8cef30b1c9d24ac42fc830523f764d8bfd2a33e79014",
+      "size": 22491572
+    },
+    {
+      "name": "docker-ce-cli",
+      "version": "5:29.2.1-1~ubuntu.22.04~jammy",
+      "architecture": "amd64",
+      "filename": "docker-ce-cli_29.2.1-1~ubuntu.22.04~jammy_amd64.deb",
+      "upstream_path": "dists/jammy/pool/stable/amd64/docker-ce-cli_29.2.1-1~ubuntu.22.04~jammy_amd64.deb",
+      "sha256": "2b9f434123cf025908ca7ce54ca6ee7b6f8622890e160b1bf2930352ca40802c",
+      "size": 16313784
+    },
+    {
+      "name": "docker-compose-plugin",
+      "version": "5.0.2-1~ubuntu.22.04~jammy",
+      "architecture": "amd64",
+      "filename": "docker-compose-plugin_5.0.2-1~ubuntu.22.04~jammy_amd64.deb",
+      "upstream_path": "dists/jammy/pool/stable/amd64/docker-compose-plugin_5.0.2-1~ubuntu.22.04~jammy_amd64.deb",
+      "sha256": "3a02f99456db41f7d5f63f07cd1f40cc03b29b1e02d2f169d2bf2cb0edc93c84",
+      "size": 7721136
+    }
+  ]
+}

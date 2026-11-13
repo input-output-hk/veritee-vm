@@ -192,6 +192,28 @@ build-egress-proxy:
 
     SAVE ARTIFACT target/release/temenos-egress-proxy /egress_proxy_bin
 
+verified-docker-apt:
+    FROM +debian-systemd
+    RUN apt-get install --assume-yes --no-install-recommends gpgv=2.4.7-21+b3
+    WORKDIR /workdir
+    COPY --dir veritee-os/docker-apt .
+    RUN python3 docker-apt/verify.py stage docker-apt/packages docker-packages
+    SAVE ARTIFACT docker-packages /docker-packages
+
+test-docker-apt-install:
+    FROM +debian-systemd
+    RUN apt-get install --assume-yes --no-install-recommends \
+        python3-pip=25.1.1+dfsg-1 python3-venv=3.13.5-1 pipx=1.7.1-1 \
+        ubuntu-keyring=2023.11.28.1-0.2 apt-utils=3.0.3
+    RUN pipx install git+https://github.com/systemd/mkosi.git@0f11ffe01a96fd0f6731bd2c98246ee19f2add16
+    WORKDIR /workdir
+    COPY --dir veritee-os/docker-apt .
+    COPY (+verified-docker-apt/docker-packages) docker-packages
+    COPY --dir veritee-os/mkosi/rootfs/mkosi.pkgmngr .
+    RUN --privileged python3 docker-apt/install_test.py \
+        /root/.local/bin/mkosi docker-packages mkosi.pkgmngr install-result.json
+    SAVE ARTIFACT install-result.json /install-result.json
+
 veritee-os-azure-snp:
     FROM +debian-systemd
 
@@ -214,8 +236,9 @@ veritee-os-azure-snp:
     'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20251208T000000Z/ trixie main contrib non-free non-free-firmware' \
     > /etc/apt/sources.list && \
     apt-get update
-    RUN apt-get install --assume-yes --no-install-recommends dosfstools=4.2-1.2 cpio=2.15+dfsg-2 zstd=1.5.7+dfsg-1 kmod=34.2-2 ubuntu-keyring=2023.11.28.1-0.2 curl=8.14.1-2+deb13u2 wget=1.25.0-2 reprepro=5.4.6+really5.3.2-1
+    RUN apt-get install --assume-yes --no-install-recommends dosfstools=4.2-1.2 cpio=2.15+dfsg-2 zstd=1.5.7+dfsg-1 kmod=34.2-2 ubuntu-keyring=2023.11.28.1-0.2 curl=8.14.1-2+deb13u2 wget=1.25.0-2 reprepro=5.4.6+really5.3.2-1 apt-utils=3.0.3
     WORKDIR /workdir
+    COPY (+verified-docker-apt/docker-packages) docker-packages
 
     COPY veritee-os/render_template ./render_template
     RUN pipx install render_template/
@@ -325,8 +348,9 @@ veritee-os-azure-snp-combined:
     'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20251208T000000Z/ trixie main contrib non-free non-free-firmware' \
     > /etc/apt/sources.list && \
     apt-get update
-    RUN apt-get install --assume-yes --no-install-recommends dosfstools=4.2-1.2 cpio=2.15+dfsg-2 zstd=1.5.7+dfsg-1 kmod=34.2-2 ubuntu-keyring=2023.11.28.1-0.2 curl=8.14.1-2+deb13u2 wget=1.25.0-2 reprepro=5.4.6+really5.3.2-1
+    RUN apt-get install --assume-yes --no-install-recommends dosfstools=4.2-1.2 cpio=2.15+dfsg-2 zstd=1.5.7+dfsg-1 kmod=34.2-2 ubuntu-keyring=2023.11.28.1-0.2 curl=8.14.1-2+deb13u2 wget=1.25.0-2 reprepro=5.4.6+really5.3.2-1 apt-utils=3.0.3
     WORKDIR /workdir
+    COPY (+verified-docker-apt/docker-packages) docker-packages
 
     COPY veritee-os/render_template ./render_template
     RUN pipx install render_template/
