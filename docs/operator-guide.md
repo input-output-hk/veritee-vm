@@ -45,8 +45,8 @@ veritee build-guest-attestation
 The local image is named `guest-attestation:local`. Packaging uses the pinned
 published helper image. To select a different published image, set
 `VERITEE_GUEST_ATTESTATION_IMAGE` or pass `--guest-attestation-image`. Warden must
-use the same image when reproducing the app disk. See
-[the helper build notes](../server/guest_attestation/README.md).
+use the same image when reproducing the app disk. Build inputs and dependency
+checks are defined in the [helper Dockerfile](../server/guest_attestation/Dockerfile).
 
 Use matching Veritee CLI versions and project templates for packaging and
 Warden reproduction.

@@ -158,7 +158,7 @@ that will not be registered can use `--no-registration-preflight`.
   design notes for binding a TLS session to the attested enclave.
 - [Egress proxy](server/egress_proxy/README.md) and its
   [security notes](server/egress_proxy/SECURITY.md); the
-  [guest attestation helper](server/guest_attestation/README.md).
+  [guest attestation helper](server/guest_attestation/).
 - Example projects: [Midnight proof server](docs/proof-server-preview.md) and
   [Midnight indexer](docs/indexer-standalone.md).
 
