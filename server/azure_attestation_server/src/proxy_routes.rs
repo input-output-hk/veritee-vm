@@ -776,7 +776,7 @@ mod tests {
                     "install_proxy_policy(json.loads(Path(sys.argv[2]).read_text()), Path(sys.argv[3]))\n"
                 ))
                 .arg(repo.join("cli/veritee"))
-                .arg(repo.join("projects").join(app).join("metadata.json"))
+                .arg(repo.join("examples").join(app).join("metadata.json"))
                 .arg(&policy_path)
                 .status()
                 .unwrap();
