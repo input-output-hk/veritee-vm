@@ -153,7 +153,7 @@ resource "azurerm_storage_container" "temen_os_container" {
 resource "null_resource" "vhd_upload" {
   triggers = {
     file_path           = var.vhd_path
-    file_sha256         = var.vhd_sha256 != "" ? var.vhd_sha256 : filesha256(var.vhd_path)
+    file_sha256         = var.vhd_sha256
     storage_account     = azurerm_storage_account.temen_os_sa.name
     upload_wait_version = "1"
   }
