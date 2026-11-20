@@ -757,6 +757,12 @@ class AzureDeploymentInventoryTests(unittest.TestCase):
             self.assertEqual(workdir.stat().st_mode & 0o777, 0o700)
 
     def test_noninteractive_create_records_tagged_immutable_deployment(self):
+        repo_root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        disk_dir = repo_root / cli.DAPP_OUTPUT_DIR
+        disk_dir.mkdir()
+        verified_hash = hashlib.sha256(b"verified VHD").hexdigest()
+        hash_path = disk_dir / cli.AZURE_VHD_HASH_FILE
+        hash_path.write_text(verified_hash + "\n")
         stdin = SimpleNamespace(isatty=lambda: False)
         metadata = {
             "name": "Demo",
@@ -794,7 +800,7 @@ class AzureDeploymentInventoryTests(unittest.TestCase):
                 mock.patch.object(
                     cli,
                     "repo_root_from_cwd",
-                    return_value=Path("/repo"),
+                    return_value=repo_root,
                 )
             )
             stack.enter_context(
@@ -862,7 +868,7 @@ class AzureDeploymentInventoryTests(unittest.TestCase):
                 mock.patch.object(cli, "append_inventory_record")
             )
             echo = stack.enter_context(mock.patch.object(cli.typer, "echo"))
-            cli.create_vm(
+            create_options = dict(
                 azure_snp=True,
                 resource_group="temenos-demo-rg",
                 location="eastus",
@@ -874,11 +880,27 @@ class AzureDeploymentInventoryTests(unittest.TestCase):
                 use_tpm2_checkquote=False,
                 unbound_attestation=False,
             )
+            cli.create_vm(**create_options)
 
-        workdir = Path("/repo/.temenos/deploy-azure-snp/demo-20260918t120000z-abcd1234")
+            # A successful conversion must leave a usable checksum. A missing
+            # or malformed sidecar must not start Terraform provisioning.
+            for invalid_hash in (None, "", "invalid\n"):
+                with self.subTest(checksum=invalid_hash):
+                    if invalid_hash is None:
+                        hash_path.unlink()
+                    else:
+                        hash_path.write_text(invalid_hash)
+                    with self.assertRaisesRegex(
+                        cli.DeployerException, "verified Azure VHD checksum",
+                    ):
+                        cli.create_vm(**create_options)
+
+        workdir = repo_root / ".temenos/deploy-azure-snp/demo-20260918t120000z-abcd1234"
         init.assert_called_once_with(workdir, "deploy-azure-snp")
+        launch.assert_called_once()
         launch_workdir, tf_vars = launch.call_args.args
         self.assertEqual(launch_workdir, workdir)
+        self.assertEqual(tf_vars["vhd_sha256"], verified_hash)
         self.assertEqual(
             tf_vars["instance_type"],
             "Standard_DC8ads_v5",

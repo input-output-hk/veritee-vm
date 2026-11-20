@@ -127,6 +127,11 @@ Each step has options for attestation modes, TLS modes, outbound network
 policy, OS release approval and deployment lifecycle. They are described in the
 [operator guide](docs/operator-guide.md).
 
+The Azure Terraform module requires `vhd_sha256`. `veritee create-vm` verifies
+the VHD and supplies it automatically. Direct Terraform calls must supply the
+64-character lowercase digest computed from the VHD; the module does not hash
+the file again.
+
 Packaging checks bundled registration limits and rebuild inputs locally before
 pulling images. Replace the example metadata's placeholder image references with
 digest pins, then run `veritee validate-dapp --app-dir projects/dapp` to check
