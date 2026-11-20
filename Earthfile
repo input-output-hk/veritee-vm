@@ -374,6 +374,8 @@ veritee-os-azure-snp-combined:
 
     WORKDIR /workdir
     COPY $APP_DIR/ ./disk
+    # Certificates and their README are runtime state, never app-disk inputs.
+    RUN rm -rf ./disk/run.d/certs
     # Use shared app scripts unless the DApp source provides overrides.
     # Permission normalization below also applies to source-provided overrides.
     COPY projects/templates/run.d/main ./default-run-main
@@ -532,6 +534,8 @@ veritee-os-azure-snp-extend-os:
 
     WORKDIR /workdir
     COPY $APP_DIR/ ./disk
+    # Certificates and their README are runtime state, never app-disk inputs.
+    RUN rm -rf ./disk/run.d/certs
     # Use shared app scripts unless the DApp source provides overrides.
     # Permission normalization below also applies to source-provided overrides.
     COPY projects/templates/run.d/main ./default-run-main
@@ -636,6 +640,8 @@ dapp-appdisk:
     WORKDIR /workdir
     COPY $APP_DIR/../*.conf .
     COPY $APP_DIR/ ./disk
+    # Certificates and their README are runtime state, never app-disk inputs.
+    RUN rm -rf ./disk/run.d/certs
     # Use shared app scripts unless the DApp source provides overrides.
     # Permission normalization below also applies to source-provided overrides.
     COPY projects/templates/run.d/main ./default-run-main

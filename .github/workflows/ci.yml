@@ -220,6 +220,9 @@ jobs:
       - name: Test measured proxy route policy
         run: python -m unittest discover -s cli/tests -p 'test_proxy_policy.py' -v
 
+      - name: Test local packaging validation
+        run: python -m unittest discover -s cli/tests -p 'test_packaging_validation.py' -v
+
   python-client:
     name: Attested-channel Python client (interop)
     runs-on: ubuntu-latest
