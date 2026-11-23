@@ -3,8 +3,10 @@ set -euo pipefail
 
 # Keep the SOURCE_DATE_EPOCH-aware tools at the same upstream version, using
 # packages from the Debian snapshot configured by the Earthfile.
+# udev supplies systemd-hwdb, which mkosi uses for both rootfs and initrd.
 apt-get install --assume-yes --no-install-recommends \
   systemd=257.9-1~deb13u1 \
+  udev=257.9-1~deb13u1 \
   systemd-boot-tools=257.9-1~deb13u1 \
   systemd-container=257.9-1~deb13u1 \
   systemd-repart=257.9-1~deb13u1 \
@@ -17,9 +19,11 @@ BINARIES=(
   systemctl
   systemd-dissect
   systemd-firstboot
+  systemd-hwdb
   systemd-measure
   systemd-nspawn
   systemd-repart
+  udevadm
   ukify
 )
 for BINARY in "${BINARIES[@]}"; do
