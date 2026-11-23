@@ -1,20 +1,17 @@
-#!/bin/bash 
-set -e
+#!/bin/bash
+set -euo pipefail
 
-# This version of systemd properly uses SOURCE_DATE_EPOCH when copying files, allowing reproducible builds to work...
-apt-get build-dep --assume-yes --no-install-recommends systemd=257.9-1~deb13u1
-apt-get install --assume-yes --no-install-recommends libfdisk-dev=2.41-5 libtss2-dev=4.1.3-1.2
+# Keep the SOURCE_DATE_EPOCH-aware tools at the same upstream version, using
+# packages from the Debian snapshot configured by the Earthfile.
+apt-get install --assume-yes --no-install-recommends \
+  systemd=257.9-1~deb13u1 \
+  systemd-boot-tools=257.9-1~deb13u1 \
+  systemd-container=257.9-1~deb13u1 \
+  systemd-repart=257.9-1~deb13u1 \
+  systemd-ukify=257.9-1~deb13u1
 
-git clone https://github.com/systemd/systemd --branch v257.9 --depth=1
-meson setup systemd/build systemd \
-  -D repart=true \
-  -D efi=true \
-  -D bootloader=true \
-  -D ukify=true \
-  -D firstboot=true \
-  -D blkid=true \
-  -D openssl=true \
-  -D tpm2=true
+# Include libexec tools such as systemd-measure in the version checks.
+export PATH="/usr/lib/systemd:$PATH"
 BINARIES=(
   bootctl
   systemctl
@@ -25,8 +22,6 @@ BINARIES=(
   systemd-repart
   ukify
 )
-ninja -C systemd/build ${BINARIES[@]}
 for BINARY in "${BINARIES[@]}"; do
-  ln -svf $PWD/systemd/build/$BINARY /usr/bin/$BINARY
-  $BINARY --version
+  "$BINARY" --version
 done
