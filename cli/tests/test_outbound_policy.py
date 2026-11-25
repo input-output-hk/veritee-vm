@@ -223,7 +223,12 @@ class ComposeBoundaryTests(unittest.TestCase):
 
     def test_current_application_compose_files_are_accepted(self):
         repo_root = Path(__file__).resolve().parents[2]
-        for path in sorted((repo_root / "projects").glob("*/run.d/docker-compose.yml")):
+        compose_files = sorted(
+            path for source in (repo_root / "examples", repo_root / "projects")
+            for path in source.glob("*/run.d/docker-compose.yml")
+        )
+        self.assertTrue(compose_files)
+        for path in compose_files:
             with self.subTest(path=path):
                 validate_compose_egress_boundary(
                     path,

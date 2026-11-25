@@ -6,6 +6,8 @@ import ssl
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from enum import Enum
+from functools import wraps
+from inspect import signature
 from pathlib import Path
 import re
 import secrets
@@ -2002,7 +2004,7 @@ APP_REGISTER_FILE_FIELDS = (
     ("caddyfile", DAPP_CADDYFILE_TEMPLATE),
     ("docker_compose", DAPP_DOCKER_COMPOSE),
 )
-APP_SOURCE_ROOT = Path("projects")
+APP_SOURCE_ROOT = Path("examples")
 TLS_MODE_FILE = "tls_mode"
 TLS_MODE_CHOICES = ("internal", "azure_vault")
 TLS_MODE_DESCRIPTIONS = (
@@ -2014,7 +2016,7 @@ TLS_PRIVKEY_SECRET_NAME = "temenos-tls-privkey-pem"
 PCRS_FILE = "pcrs.json"
 POLICY_FILE = "policy.json"
 POLICY_TEMPLATE_FILE = "policy.template.json"
-DEFAULT_APP_DIR = Path("projects/dapp")
+DEFAULT_APP_DIR = Path("examples/dapp")
 DAPP_OUTPUT_DIR = Path("local-azure-snp")
 ACR_OS_ARTIFACT_PREFIX = "/temenos"
 TERRAFORM_WORK_ROOT = Path(".temenos")
@@ -2039,6 +2041,42 @@ def write_app_metadata(output_dir: Path, metadata: dict) -> Path:
     return output_path
 
 
+def resolve_app_source_dir(app_dir: Optional[Path] = None) -> Path:
+    """Resolve caller paths before entering the checkout build context."""
+    repository = repo_root_from_cwd().resolve()
+    source = (Path(app_dir) if app_dir is not None else repository / DEFAULT_APP_DIR).resolve()
+    if not source.is_dir():
+        raise DeployerException(f"DApp source directory not found: {source}")
+    staging_parent = repository / ".temenos" / "app-build"
+    if repository.is_relative_to(source) or staging_parent.is_relative_to(source):
+        raise DeployerException("App source must not contain the Veritee checkout or its build work directory")
+    return source
+
+
+@contextmanager
+def app_build_context(app_dir: Optional[Path]) -> Iterator[Path]:
+    source = resolve_app_source_dir(app_dir)
+    repository = repo_root_from_cwd().resolve()
+    previous_directory = Path.cwd()
+    try:
+        os.chdir(repository)
+        yield source
+    finally:
+        os.chdir(previous_directory)
+
+
+def build_from_checkout(command):
+    """Keep Earthly, relative artifacts and output paths in one checkout context."""
+    @wraps(command)
+    def run(*args, **kwargs):
+        arguments = signature(command).bind(*args, **kwargs)
+        app_dir = arguments.arguments.get("app_dir")
+        with app_build_context(Path(app_dir) if app_dir else None) as source:
+            arguments.arguments["app_dir"] = source
+            return command(*arguments.args, **arguments.kwargs)
+    return run
+
+
 @contextmanager
 def prepared_app_build_source(
     app_dir: Path,
@@ -2049,7 +2087,7 @@ def prepared_app_build_source(
     allow_warden_egress_profile: bool = False,
 ) -> Iterator[tuple[str, dict]]:
     """Stage an app source tree with its normalized, measured egress policy."""
-    source_dir = app_dir.resolve()
+    source_dir = resolve_app_source_dir(app_dir)
     if not source_dir.is_dir():
         raise DeployerException(f"DApp source directory not found: {app_dir}")
 
@@ -2081,25 +2119,22 @@ def prepared_app_build_source(
             f"Unsafe DApp Compose configuration in {source_dir / DAPP_DOCKER_COMPOSE}: {exc}"
         ) from exc
 
-    with tempfile.TemporaryDirectory(
-        prefix="temenos-egress-",
-        dir=Path.cwd(),
-    ) as temporary_dir:
+    repository = repo_root_from_cwd().resolve()
+    staging_parent = repository / ".temenos" / "app-build"
+    staging_parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="source-", dir=staging_parent) as temporary_dir:
         staging_root = Path(temporary_dir)
-        for repart_definition in source_dir.parent.glob("*.conf"):
-            shutil.copy2(repart_definition, staging_root / repart_definition.name)
         staged_dir = staging_root / "app"
-        def exclude_runtime_certificates(directory, names):
-            if Path(directory) == source_dir / "run.d" and "certs" in names:
-                return {"certs"}
-            return set()
+        def exclude_unmeasured_paths(directory, names):
+            parent = Path(directory).relative_to(source_dir)
+            return {name for name in names if pack_validation.excluded_path((parent / name).as_posix())}
 
         shutil.copytree(
-            source_dir, staged_dir, symlinks=True, ignore=exclude_runtime_certificates
+            source_dir, staged_dir, symlinks=True, ignore=exclude_unmeasured_paths
         )
         staged_metadata_path = write_app_metadata(staged_dir, shipped_metadata)
         os.utime(staged_metadata_path, (0, 0))
-        yield str(staged_dir.relative_to(Path.cwd())), shipped_metadata
+        yield str(staged_dir.relative_to(repository)), shipped_metadata
 
 
 def validate_tls_mode(value: str) -> str:
@@ -2265,7 +2300,7 @@ def validate_dapp_packaging(
         source = pack_validation.source_tree(app_dir)
         if registration_preflight:
             pack_validation.validate_rebuild(
-                app_dir, repo_root_from_cwd() / "projects", profile, guest_image,
+                app_dir, repo_root_from_cwd() / "veritee-os/app-disk", profile, guest_image,
                 shipped.get("egress_profile") == "warden",
                 repo_root_from_cwd(),
             )
@@ -2292,7 +2327,7 @@ def validate_dapp_packaging(
 
 @app.command("validate-dapp", rich_help_panel=COMMAND_PANEL_IMAGES)
 def validate_dapp(
-    app_dir: Annotated[Path, typer.Option(help="Application directory to validate")] = DEFAULT_APP_DIR,
+    app_dir: Annotated[Optional[Path], typer.Option(help="Application directory to validate; defaults to examples/dapp in the checkout")] = None,
     tls_mode: Annotated[str, typer.Option(help="TLS mode used for packaging")] = "internal",
     tls_keyvault_name: Annotated[Optional[str], typer.Option(help="Runtime TLS vault name, when using azure_vault")] = None,
     guest_attestation_image: Annotated[Optional[str], typer.Option(help="Guest attestation image used for packaging")] = None,
@@ -2300,6 +2335,7 @@ def validate_dapp(
     registration_preflight: Annotated[bool, typer.Option("--registration-preflight/--no-registration-preflight", help="Check compatibility with Warden's fixed app-disk rebuild recipe")] = True,
 ):
     """Validate package inputs without downloading images or building a disk."""
+    app_dir = resolve_app_source_dir(app_dir)
     metadata = load_app_source_metadata(app_dir)
     mode = validate_tls_mode(tls_mode)
     vault = resolve_packaging_tls_keyvault_name(
@@ -2323,7 +2359,7 @@ def resolve_app_metadata_path(path: Optional[Path]) -> Path:
     if path is not None:
         return path
 
-    default_path = DAPP_OUTPUT_DIR / APP_METADATA_FILE
+    default_path = repo_root_from_cwd() / DAPP_OUTPUT_DIR / APP_METADATA_FILE
     if not default_path.exists():
         raise DeployerException(
             f"DApp metadata not found. Add {DEFAULT_APP_DIR / APP_METADATA_FILE} "
@@ -2445,12 +2481,13 @@ def has_register_app_files(app_dir: Path) -> bool:
 
 
 def find_app_dirs_matching_metadata(metadata_file: Path) -> list[Path]:
-    if not APP_SOURCE_ROOT.is_dir():
+    source_root = repo_root_from_cwd() / APP_SOURCE_ROOT
+    if not source_root.is_dir():
         return []
 
     expected_metadata = load_app_metadata(metadata_file)
     matches = []
-    for candidate_dir in sorted(APP_SOURCE_ROOT.iterdir()):
+    for candidate_dir in sorted(source_root.iterdir()):
         candidate_metadata_path = candidate_dir / APP_METADATA_FILE
         if not candidate_dir.is_dir() or not candidate_metadata_path.is_file():
             continue
@@ -2468,9 +2505,7 @@ def find_app_dirs_matching_metadata(metadata_file: Path) -> list[Path]:
 
 def resolve_register_app_source_dir(metadata_file: Path, app_dir: Optional[Path]) -> Path:
     if app_dir is not None:
-        if not app_dir.is_dir():
-            raise DeployerException(f"DApp source directory not found: {app_dir}")
-        return app_dir
+        return resolve_app_source_dir(app_dir)
 
     if has_register_app_files(metadata_file.parent):
         return metadata_file.parent
@@ -3444,6 +3479,8 @@ def build_earthly_extend_os_command(
     acr_token: str,
     tls_mode: str,
 ) -> List[str]:
+    if not app_dir or not app_dir.strip():
+        raise DeployerException("APP_DIR must be provided explicitly for an application disk build")
     return [
         "earthly",
         "--no-cache",
@@ -3471,6 +3508,8 @@ def build_earthly_app_disk_command(
     acr_token: str,
     tls_mode: str,
 ) -> List[str]:
+    if not app_dir or not app_dir.strip():
+        raise DeployerException("APP_DIR must be provided explicitly for an application disk build")
     command = [
         "earthly",
         "--no-cache",
@@ -3483,9 +3522,8 @@ def build_earthly_app_disk_command(
         f"--GUEST_ATTESTATION_IMAGE={guest_attestation_image}",
         f"--ACR_REGISTRY={registry}",
         f"--VERITEE_TLS_MODE={tls_mode}",
+        f"--APP_DIR={app_dir}",
     ]
-    if app_dir:
-        command.append(f"--APP_DIR={app_dir}")
 
     return command
 
@@ -5079,7 +5117,7 @@ def attested_prove(
 def register_app(
     endpoint: Annotated[Optional[str], typer.Option(help="Warden DApp registration endpoint. Derived from VERITEE_WARDEN_URL when omitted.")] = None,
     metadata_path: Annotated[Optional[Path], typer.Option(help="Path to DApp metadata.json from package-dapp-deployable-vm-image")] = None,
-    app_dir: Annotated[Optional[Path], typer.Option(help="DApp source directory containing run.d/Caddyfile.template and run.d/docker-compose.yml")] = None,
+    app_dir: Annotated[Optional[Path], typer.Option(help="Required application source directory used for packaging")] = None,
     base_os_version: Annotated[Optional[str], typer.Option("--base-os-version", help="Optional consistency check against the OS version resolved by Warden.")] = None,
     tls_mode: Annotated[Optional[str], typer.Option("--tls-mode", help="TLS mode used to build the DApp disk: internal or azure_vault")] = None,
     address: Annotated[Optional[str], typer.Option(help="DApp base endpoint URL or VM IP address to register on Warden")] = None,
@@ -5088,6 +5126,8 @@ def register_app(
     poll: Annotated[Optional[bool], typer.Option("--poll/--no-poll", help="Poll queued registration jobs until completion")] = None,
 ):
     """Register your DApp on the Warden for attestation verification and signing."""
+    if app_dir is None:
+        raise DeployerException("Pass --app-dir with the application source directory used for packaging")
     endpoint = resolve_warden_endpoint(endpoint, WARDEN_REGISTER_ROUTE)
     metadata_file = resolve_app_metadata_path(metadata_path)
     metadata = load_app_metadata(metadata_file)
@@ -5461,6 +5501,7 @@ def hydrate_policy_from_attestation(
 
 
 @app.command("build-app-disk", rich_help_panel=COMMAND_PANEL_IMAGES)
+@build_from_checkout
 def build_app_disk(
     image: Annotated[str, typer.Option(help="ACR image to embed in the application disk")],
     app_dir: Annotated[str, typer.Option(help="Path to the application directory. Must contain the application disk run/setup files")] = "",
@@ -5478,7 +5519,7 @@ def build_app_disk(
         raise typer.BadParameter("image cannot be empty")
 
     tls_mode = prompt_tls_mode(tls_mode)
-    source_app_dir = Path(app_dir) if app_dir else DEFAULT_APP_DIR
+    source_app_dir = Path(app_dir)
     source_metadata = load_app_source_metadata(source_app_dir)
     tls_keyvault_name = resolve_packaging_tls_keyvault_name(
         tls_mode=tls_mode,
@@ -5531,8 +5572,9 @@ def build_app_disk(
 
 
 @app.command("package-dapp-deployable-vm-image", rich_help_panel=COMMAND_PANEL_IMAGES)
+@build_from_checkout
 def package_dapp_deployable_vm_image(
-    app_dir: Annotated[str, typer.Option(help="DApp source directory containing metadata.json")] = str(DEFAULT_APP_DIR),
+    app_dir: Annotated[Optional[Path], typer.Option(help="DApp source directory containing metadata.json; defaults to examples/dapp in the checkout")] = None,
     push: Annotated[bool, typer.Option("--push/--no-push", help="Push the deployable VM image to Azure Container Registry")] = True,
     debug: Annotated[bool, typer.Option()] = False,
     persist_size: Annotated[

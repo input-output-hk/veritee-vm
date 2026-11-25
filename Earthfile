@@ -291,6 +291,7 @@ veritee-os-azure-snp:
 
 
 veritee-os-azure-snp-combined:
+    ARG --required APP_DIR
     FROM +debian-systemd
 
     DO github.com/earthly/lib:18cd0072824d86e77ed3ab3ad350f7ba34d33e84+INSTALL_DIND
@@ -308,8 +309,6 @@ veritee-os-azure-snp-combined:
     ARG GUEST_ATTESTATION_IMAGE="temenostest.azurecr.io/veritee/guest-attestation@sha256:9426ac1dce1c3501c70252ab37d9d591ebfaca252f853e31da747acf541d6b1a"
     # This should of course not have a default value. This is mainly here for demo purposes.
     ARG USER_DOCKER="snowder/temenos@sha256:ce071a393d8b289eef004412249250dd0ccf0d5969d2a28ca0037ad51b9a3d66"
-    # This is the directory where the application disk related files are located.
-    ARG APP_DIR="projects/dapp"
     ARG PERSIST_SIZE="2G"
     ARG VERITEE_TLS_MODE="internal"
     ARG ATTESTATION_MODE="maa"
@@ -374,12 +373,12 @@ veritee-os-azure-snp-combined:
 
     WORKDIR /workdir
     COPY $APP_DIR/ ./disk
-    # Certificates and their README are runtime state, never app-disk inputs.
-    RUN rm -rf ./disk/run.d/certs
+    # Runtime certificates and source Git metadata are never app-disk inputs.
+    RUN rm -rf ./disk/run.d/certs ./disk/.git
     # Use shared app scripts unless the DApp source provides overrides.
     # Permission normalization below also applies to source-provided overrides.
-    COPY projects/templates/run.d/main ./default-run-main
-    COPY projects/templates/setup.d/main ./default-setup-main
+    COPY veritee-os/app-disk/run.d/main ./default-run-main
+    COPY veritee-os/app-disk/setup.d/main ./default-setup-main
     RUN if [ ! -f ./disk/run.d/main ]; then \
             install -D -m 0755 ./default-run-main ./disk/run.d/main; \
         fi && \
@@ -466,6 +465,7 @@ veritee-os-azure-snp-combined:
 
 
 veritee-os-azure-snp-extend-os:
+    ARG --required APP_DIR
     FROM +debian-systemd
 
     DO github.com/earthly/lib:18cd0072824d86e77ed3ab3ad350f7ba34d33e84+INSTALL_DIND
@@ -479,8 +479,6 @@ veritee-os-azure-snp-extend-os:
     ARG GUEST_ATTESTATION_IMAGE="temenostest.azurecr.io/veritee/guest-attestation@sha256:9426ac1dce1c3501c70252ab37d9d591ebfaca252f853e31da747acf541d6b1a"
     # This should of course not have a default value. This is mainly here for demo purposes.
     ARG USER_DOCKER="snowder/temenos@sha256:ce071a393d8b289eef004412249250dd0ccf0d5969d2a28ca0037ad51b9a3d66"
-    # This is the directory where the application disk related files are located.
-    ARG APP_DIR="projects/dapp"
     ARG OS_RAW="local-base-os/disk.raw"
     ARG PERSIST_SIZE="2G"
     ARG ACR_REGISTRY=""
@@ -534,12 +532,12 @@ veritee-os-azure-snp-extend-os:
 
     WORKDIR /workdir
     COPY $APP_DIR/ ./disk
-    # Certificates and their README are runtime state, never app-disk inputs.
-    RUN rm -rf ./disk/run.d/certs
+    # Runtime certificates and source Git metadata are never app-disk inputs.
+    RUN rm -rf ./disk/run.d/certs ./disk/.git
     # Use shared app scripts unless the DApp source provides overrides.
     # Permission normalization below also applies to source-provided overrides.
-    COPY projects/templates/run.d/main ./default-run-main
-    COPY projects/templates/setup.d/main ./default-setup-main
+    COPY veritee-os/app-disk/run.d/main ./default-run-main
+    COPY veritee-os/app-disk/setup.d/main ./default-setup-main
     RUN if [ ! -f ./disk/run.d/main ]; then \
             install -D -m 0755 ./default-run-main ./disk/run.d/main; \
         fi && \
@@ -587,6 +585,7 @@ guest-attestation-image:
     FROM DOCKERFILE server/guest_attestation
 
 dapp-appdisk:
+    ARG --required APP_DIR
     FROM +debian-systemd
 
     DO github.com/earthly/lib:18cd0072824d86e77ed3ab3ad350f7ba34d33e84+INSTALL_DIND
@@ -595,9 +594,6 @@ dapp-appdisk:
     ARG GUEST_ATTESTATION_IMAGE="temenostest.azurecr.io/veritee/guest-attestation@sha256:9426ac1dce1c3501c70252ab37d9d591ebfaca252f853e31da747acf541d6b1a"
     # This should of course not have a default value. This is mainly here for demo purposes.
     ARG USER_DOCKER="snowder/temenos@sha256:ce071a393d8b289eef004412249250dd0ccf0d5969d2a28ca0037ad51b9a3d66"
-    # This is the directory where the application disk related files are located. It should contain the Dockerfiles, configuration files and any other files needed to build the application disk.
-    # Has a default value for convenience reasons
-    ARG APP_DIR="projects/dapp"
     ARG VERITEE_TLS_MODE="internal"
 
     WORKDIR /workdir/disk/container-images
@@ -638,14 +634,14 @@ dapp-appdisk:
     END
 
     WORKDIR /workdir
-    COPY $APP_DIR/../*.conf .
+    COPY veritee-os/app-disk/*.conf .
     COPY $APP_DIR/ ./disk
-    # Certificates and their README are runtime state, never app-disk inputs.
-    RUN rm -rf ./disk/run.d/certs
+    # Runtime certificates and source Git metadata are never app-disk inputs.
+    RUN rm -rf ./disk/run.d/certs ./disk/.git
     # Use shared app scripts unless the DApp source provides overrides.
     # Permission normalization below also applies to source-provided overrides.
-    COPY projects/templates/run.d/main ./default-run-main
-    COPY projects/templates/setup.d/main ./default-setup-main
+    COPY veritee-os/app-disk/run.d/main ./default-run-main
+    COPY veritee-os/app-disk/setup.d/main ./default-setup-main
     RUN if [ ! -f ./disk/run.d/main ]; then \
             install -D -m 0755 ./default-run-main ./disk/run.d/main; \
         fi && \

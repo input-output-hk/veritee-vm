@@ -24,7 +24,7 @@ disk or repository.
 ```sh
 export VERITEE_ACR_NAME=temenostest
 veritee upload-tls-certs \
-  --app-dir projects/indexer-standalone \
+  --app-dir examples/indexer-standalone \
   --tls-keyvault-name <indexer-tls-vault> \
   --resource-group <tls-resource-group> \
   --location westus \
@@ -32,7 +32,7 @@ veritee upload-tls-certs \
   --privkey /path/to/privkey.pem
 
 veritee package-dapp-deployable-vm-image \
-  --app-dir projects/indexer-standalone \
+  --app-dir examples/indexer-standalone \
   --persist-size 32G \
   --tls-mode azure_vault \
   --tls-keyvault-name <indexer-tls-vault> \
