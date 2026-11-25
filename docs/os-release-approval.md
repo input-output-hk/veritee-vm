@@ -108,7 +108,7 @@ export VERITEE_OS_NETWORK=preprod
 export VERITEE_OS_REGISTRY=<new-os-registry-address>
 veritee os-release list
 # Set metadata.json.base_os_image to the exact digest-pinned IMAGE from the list.
-veritee package-dapp-deployable-vm-image --app-dir projects/my-app
+veritee package-dapp-deployable-vm-image --app-dir examples/my-app
 veritee register-app --metadata-path local-azure-snp/metadata.json
 ```
 

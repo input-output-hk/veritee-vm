@@ -18,6 +18,7 @@ if [ "$tls_mode" = "azure_vault" ]; then
     certs_dir="${TEMENOS_TLS_CERTS_DIR:-/run/temenos/tls}"
     export TEMENOS_TLS_CERTS_DIR="$certs_dir"
 fi
+install -d -m 0700 "$certs_dir"
 
 validate_azure_keyvault_name() {
     name="$1"

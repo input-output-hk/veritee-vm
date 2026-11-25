@@ -1,6 +1,0 @@
-{
-    "name": "Temenos Strategy Runner PoC",
-    "description": "Runs encrypted RSI strategy requests inside a Temenos TEE and returns unsigned demo transaction proposals.",
-    "app_container_image": "temenostest.azurecr.io/dapp/strategy-runner:0.1.0",
-    "base_os_image": "temenostest.azurecr.io/temenos/base-os:0.3.0-raw-sev-snp"
-}

@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "ascii_boundary",
+      "field": "name",
+      "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "encoded_bytes": 34,
+      "accepted": true
+    },
+    {
+      "name": "ascii_oversize",
+      "field": "name",
+      "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "encoded_bytes": 35,
+      "accepted": false
+    },
+    {
+      "name": "utf8_boundary",
+      "field": "name",
+      "value": "éééééééééééééééé",
+      "encoded_bytes": 34,
+      "accepted": true
+    },
+    {
+      "name": "utf8_oversize",
+      "field": "name",
+      "value": "ééééééééééééééééé",
+      "encoded_bytes": 36,
+      "accepted": false
+    },
+    {
+      "name": "astral_boundary",
+      "field": "name",
+      "value": "😀😀😀😀😀😀😀😀",
+      "encoded_bytes": 34,
+      "accepted": true
+    },
+    {
+      "name": "astral_oversize",
+      "field": "name",
+      "value": "😀😀😀😀😀😀😀😀😀",
+      "encoded_bytes": 38,
+      "accepted": false
+    },
+    {
+      "name": "quote_boundary",
+      "field": "name",
+      "value": "\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"",
+      "encoded_bytes": 34,
+      "accepted": true
+    },
+    {
+      "name": "quote_oversize",
+      "field": "name",
+      "value": "\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"",
+      "encoded_bytes": 36,
+      "accepted": false
+    },
+    {
+      "name": "backslash_boundary",
+      "field": "name",
+      "value": "\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+      "encoded_bytes": 34,
+      "accepted": true
+    },
+    {
+      "name": "control_boundary",
+      "field": "name",
+      "value": "\u0000\u0000\u0000\u0000\u0000ab",
+      "encoded_bytes": 34,
+      "accepted": true
+    }
+  ]
+}
