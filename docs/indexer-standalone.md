@@ -6,8 +6,8 @@ The indexer image is not rebuilt or modified. The application disk measures its
 configuration and the RPC transport adapter.
 
 The runtime helpers are inline in Compose. The application source directory
-matches the shared DApp template's file layout, including its unchanged
-`run.d/certs/README.md`, so the registration protocol can reproduce it using
+matches the shared DApp template's file layout. Runtime `run.d/certs/` files and
+their README are excluded from packaging, so registration can reproduce it using
 metadata, Caddyfile and Compose. This document stays outside the measured disk.
 
 The GraphQL endpoint is `https://indexer.preprod.wastedp.io/api/v3/graphql`.
@@ -24,7 +24,7 @@ disk or repository.
 ```sh
 export VERITEE_ACR_NAME=temenostest
 veritee upload-tls-certs \
-  --app-dir projects/indexer-standalone \
+  --app-dir examples/indexer-standalone \
   --tls-keyvault-name <indexer-tls-vault> \
   --resource-group <tls-resource-group> \
   --location westus \
@@ -32,7 +32,7 @@ veritee upload-tls-certs \
   --privkey /path/to/privkey.pem
 
 veritee package-dapp-deployable-vm-image \
-  --app-dir projects/indexer-standalone \
+  --app-dir examples/indexer-standalone \
   --persist-size 32G \
   --tls-mode azure_vault \
   --tls-keyvault-name <indexer-tls-vault> \

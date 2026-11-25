@@ -45,8 +45,8 @@ veritee build-guest-attestation
 The local image is named `guest-attestation:local`. Packaging uses the pinned
 published helper image. To select a different published image, set
 `VERITEE_GUEST_ATTESTATION_IMAGE` or pass `--guest-attestation-image`. Warden must
-use the same image when reproducing the app disk. See
-[the helper build notes](../server/guest_attestation/README.md).
+use the same image when reproducing the app disk. Build inputs and dependency
+checks are defined in the [helper Dockerfile](../server/guest_attestation/Dockerfile).
 
 Use matching Veritee CLI versions and project templates for packaging and
 Warden reproduction.
@@ -121,7 +121,7 @@ failures only; other setup failures still prevent the DApp from starting.
 
 Packaging is **not** a plain `docker build`. Veritee pulls a **base Veritee OS image** and an **application container image** from Azure Container Registry, embeds the app into dm-verity partitions on an Azure SNP-ready VM image, and generates TEE metadata (application root hash and PCR4) used for attestation.
 
-Configure your DApp in `projects/dapp/metadata.json`:
+Configure your DApp in `examples/dapp/metadata.json`:
 
 ```json
 {
@@ -153,7 +153,9 @@ not expose its attestation mode, add `"attestation_mode": "raw-sev-snp"` (or
 `"maa"`) to the source metadata so packaging grants only the platform path the
 guest actually uses. The broad `"egress_profile": "warden"` profile is reserved
 for the Warden image and requires the explicit
-`--allow-warden-egress-profile` packaging flag.
+`--allow-warden-egress-profile` packaging flag. Also pass
+`--no-registration-preflight` when packaging the Warden: its profile is not
+supported by the ordinary DApp registration builder.
 
 The measured application disk is part of the trusted DApp computing base.
 `setup.d/main` and `run.d/main` currently execute as host root during startup;
@@ -393,7 +395,7 @@ required:
 
 ```bash
 veritee package-dapp-deployable-vm-image \
-  --app-dir projects/dapp \
+  --app-dir examples/dapp \
   --tls-mode internal
 ```
 
@@ -415,7 +417,7 @@ Upload the certificate material before packaging/deploying:
 
 ```bash
 veritee upload-tls-certs \
-  --app-dir projects/dapp \
+  --app-dir examples/dapp \
   --fullchain /path/to/fullchain.pem \
   --privkey /path/to/privkey.pem
 ```
@@ -430,7 +432,7 @@ Then package and deploy with the same TLS mode:
 
 ```bash
 veritee package-dapp-deployable-vm-image \
-  --app-dir projects/dapp \
+  --app-dir examples/dapp \
   --tls-mode azure_vault
 
 veritee create-vm --azuresnp
