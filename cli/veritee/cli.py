@@ -6457,14 +6457,15 @@ def create_vm(
         "deployment_tags": json.dumps(deployment_tags, separators=(",", ":")),
     }
     # resize_azure_disk has just verified or generated this exact VHD checksum.
-    # Forward it rather than asking Terraform to rehash a multi-gigabyte file
-    # during both planning and applying. Legacy direct Terraform calls retain
-    # their filesha256 fallback.
+    # Require it before Terraform initialization; even an unselected filesha256
+    # fallback can read the full image while Terraform evaluates the expression.
     verified_hash_path = disk_dir / AZURE_VHD_HASH_FILE
-    if verified_hash_path.is_file():
-        tf_vars["vhd_sha256"] = validate_sha256_hex(
-            verified_hash_path.read_text().strip(), "verified Azure VHD checksum",
-        )
+    tf_vars["vhd_sha256"] = validate_sha256_hex(
+        read_required_text_file(
+            verified_hash_path, "verified Azure VHD checksum",
+        ).strip(),
+        "verified Azure VHD checksum",
+    )
 
     print_phase("VM DEPLOYMENT", 2, 3)
 

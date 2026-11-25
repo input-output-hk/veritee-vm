@@ -176,7 +176,10 @@ def validate_rebuild(source, platform_dir, profile, guest_image, allow_warden, r
     if image_identity(guest_image) != image_identity(rebuild["guest_attestation_image"]):
         raise ValueError("Guest attestation image differs from the Warden's bundled rebuild pin")
     if allow_warden and not rebuild["allow_warden_egress_profile"]:
-        raise ValueError("The Warden registration builder does not accept --allow-warden-egress-profile")
+        raise ValueError(
+            "The Warden registration builder does not accept --allow-warden-egress-profile; "
+            "also pass --no-registration-preflight to package a Warden image without registration checks"
+        )
     actual = source_tree(source)
     files = actual["files"]
     fixed, fallbacks = rebuild["fixed_files"], rebuild["fallback_scripts"]
@@ -222,7 +225,9 @@ def verify_snapshot(metadata_file, source, tls_mode=None):
     if type(snapshot.get("version")) is not int or snapshot["version"] != 1:
         raise ValueError("Unsupported packaged-inputs snapshot version; repackage the image")
     if file_hash(metadata_file) != snapshot["metadata_sha256"]:
-        raise ValueError("Packaged metadata changed after packaging; repackage the image")
+        raise ValueError(
+            f"Packaged metadata changed after packaging, or {path} is stale; repackage the image"
+        )
     if tls_mode is not None and snapshot["tls_mode"] != tls_mode:
         raise ValueError("TLS mode differs from the packaged image; repackage the image")
     if source is not None:

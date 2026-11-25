@@ -80,11 +80,12 @@ failed builds, so the persistent partition does not accumulate stale layers.
 Package with:
 
 ```sh
-temenos package-dapp-deployable-vm-image \
-  --app-dir application_disk/warden \
+veritee package-dapp-deployable-vm-image \
+  --app-dir projects/warden \
   --tls-mode azure_vault \
   --tls-keyvault-name <warden-key-vault> \
   --allow-warden-egress-profile \
+  --no-registration-preflight \
   --no-push
 ```
 

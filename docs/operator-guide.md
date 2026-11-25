@@ -153,7 +153,9 @@ not expose its attestation mode, add `"attestation_mode": "raw-sev-snp"` (or
 `"maa"`) to the source metadata so packaging grants only the platform path the
 guest actually uses. The broad `"egress_profile": "warden"` profile is reserved
 for the Warden image and requires the explicit
-`--allow-warden-egress-profile` packaging flag.
+`--allow-warden-egress-profile` packaging flag. Also pass
+`--no-registration-preflight` when packaging the Warden: its profile is not
+supported by the ordinary DApp registration builder.
 
 The measured application disk is part of the trusted DApp computing base.
 `setup.d/main` and `run.d/main` currently execute as host root during startup;

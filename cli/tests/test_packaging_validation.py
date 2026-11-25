@@ -128,8 +128,10 @@ class PackagingValidationTests(unittest.TestCase):
         self.check(allow_warden=True)  # An unused opt-in does not change the disk.
         self.metadata["egress_profile"] = "warden"
         self.write_metadata()
-        with self.assertRaisesRegex(cli.DeployerException, "does not accept --allow-warden-egress-profile"):
+        with self.assertRaisesRegex(cli.DeployerException, "does not accept --allow-warden-egress-profile") as error:
             self.check(allow_warden=True)
+        self.assertIn("--no-registration-preflight", str(error.exception))
+        self.check(allow_warden=True, registration_preflight=False)
 
     def test_generated_certs_are_excluded_from_the_stage_and_snapshot(self):
         certificates = self.app / "run.d/certs"
@@ -226,8 +228,10 @@ class PackagingValidationTests(unittest.TestCase):
             before = path.read_bytes()
             with self.subTest(path=path.name):
                 path.write_bytes(before + b"\n")
-                with self.assertRaisesRegex(ValueError, "changed after packaging"):
+                with self.assertRaisesRegex(ValueError, "changed after packaging") as error:
                     validation.verify_snapshot(metadata_file, self.app, "internal")
+                if path == metadata_file:
+                    self.assertIn(str(metadata_file.parent / validation.SNAPSHOT_FILE), str(error.exception))
                 path.write_bytes(before)
         self.metadata["outbound"] = [{"host": "new.example", "ports": [443]}]
         self.write_metadata()
