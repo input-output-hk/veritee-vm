@@ -81,7 +81,7 @@ Package with:
 
 ```sh
 veritee package-dapp-deployable-vm-image \
-  --app-dir projects/warden \
+  --app-dir examples/warden \
   --tls-mode azure_vault \
   --tls-keyvault-name <warden-key-vault> \
   --allow-warden-egress-profile \
