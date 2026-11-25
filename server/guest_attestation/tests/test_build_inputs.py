@@ -93,21 +93,15 @@ class GeneratorBuildInputsTests(unittest.TestCase):
         ):
             self.assertIn(path, self.dockerfile)
 
-    def test_packaging_defaults_select_the_same_published_image(self):
+    def test_packaging_default_selects_a_digest_pinned_published_image(self):
         repository = ROOT.parents[1]
-        images = re.findall(
-            r'^\s*ARG GUEST_ATTESTATION_IMAGE="([^"]+)"',
-            (repository / "Earthfile").read_text(), re.MULTILINE,
-        )
-        self.assertEqual(len(images), 3)
         cli = ast.parse((repository / "cli/veritee/cli.py").read_text())
         default = next(
             node.value.value for node in cli.body if isinstance(node, ast.Assign)
             and any(isinstance(t, ast.Name) and t.id == "DEFAULT_GUEST_ATTESTATION_IMAGE"
                     for t in node.targets)
         )
-        self.assertEqual(set(images), {default})
-        self.assertRegex(default, r"@sha256:[0-9a-f]{64}$")
+        self.assertRegex(default, r"^[^\s@]+/veritee/guest-attestation@sha256:[0-9a-f]{64}$")
 
 
 if __name__ == "__main__":

@@ -31,10 +31,47 @@ public traffic and IMDS remain blocked.
 | `VERITEE_ACR_NAME` | Azure Container Registry name required by ACR-backed image operations |
 | `VERITEE_WARDEN_URL` | Warden base URL used by registration and verification commands |
 | `VERITEE_GUEST_ATTESTATION_IMAGE` | Optional override for the pinned guest helper image; also available as `--guest-attestation-image` |
-| `DOCKERHUB_USER` / `DOCKERHUB_TOKEN` | Optional Docker Hub credentials for Earthly pulls; omit both for anonymous, rate-limited pulls |
+| `DOCKERHUB_USER` / `DOCKERHUB_TOKEN` | Optional Docker Hub credentials for container pulls; omit both for anonymous, rate-limited pulls |
 | `ARM_SUBSCRIPTION_ID` | Azure subscription used by VM deployment inventory commands |
 | `VERITEE_INVENTORY_STORAGE_ACCOUNT` | Optional override for the tagged inventory Storage account discovered by the CLI |
 | `VERITEE_INVENTORY_CONTAINER` | Audit container name; defaults to `temenos-inventory` |
+
+Image builds use Docker Buildx and privileged, disposable build containers.
+The CLI keeps a digest-pinned BuildKit builder named `veritee-build`; it does
+not change Docker's selected builder. `VERITEE_BUILD_BUILDER` selects a separate
+cache. `VERITEE_BUILD_NETWORK` selects its Docker bridge network and is also
+used by the build container. Warden sets this to `temenos-builder` and supplies
+`VERITEE_BUILD_HTTPS_PROXY` and `VERITEE_BUILD_NO_PROXY`. These apply only to
+build subprocesses and leave the Warden/wallet transport configuration alone. A missing network or conflicting builder configuration fails
+the build instead of using another network.
+When the CLI runs inside a container using the host Docker socket, set
+`VERITEE_BUILD_WORK_ROOT` to shared scratch storage inside that container and
+`VERITEE_BUILD_HOST_WORK_ROOT` to the same directory on the Docker host. Each
+build stages its inputs there and removes its own temporary workspace. The
+Warden Compose project configures these paths under its persistent volume.
+
+The OS recipe is `build/Dockerfile`'s `azure-snp-os-builder` target, with mkosi
+run by `build/azure-snp-os.sh`. App packaging uses `app-disk-builder` and
+`build/app-disk.sh`. Outputs and CLI packaging commands stay the same. New OS
+release manifests use recipe version 2 and record the Dockerfile hash; reading
+signed recipe-version-1 manifests remains supported. Warden's release validator
+needs the matching recipe-version-2 update before admitting a new OS release.
+
+To add dependencies, edit their build definition:
+
+| Dependency | Where to edit |
+|---|---|
+| Guest OS package | `Packages=` in `veritee-os/mkosi/rootfs/mkosi.conf.j2` (or the initrd configuration) |
+| DApp dependency | The application's own container image and lockfile; then update its image pin in project metadata |
+| Build tool or source-built service | The relevant stage in `build/Dockerfile`; `os-project-common` declares installed file destinations |
+| Service activation | Links under `mkosi.extra/` for all profiles, or `mkosi.debug/` for debug only |
+| Embedded helper image | Add its pinned reference, loaded tag and archive name to `build/app-images.conf` |
+
+The runners render project templates and invoke mkosi or repart. Adding a
+component does not need another staging command in either runner. Executable
+template files keep their executable mode after rendering.
+Changes to the shared image list require a matching VM source revision in Warden
+so it reproduces the same app disk.
 
 ## Building the guest attestation helper
 
@@ -189,14 +226,21 @@ and the separate OS-maintainer signing workflow. This flow needs a
 version-matched registry; it does not silently migrate an existing deployment.
 
 ```bash
-export VERITEE_ACR_NAME=myregistry
 veritee package-dapp-deployable-vm-image
+
+# Optional: publish the packaged image
+export VERITEE_ACR_NAME=myregistry
+veritee package-dapp-deployable-vm-image --push
 ```
 
 Useful flags:
 
-- `--no-push` — package locally without publishing to ACR
-- `--verbose` — show full Earthly logs (hidden by default; the CLI focuses on TEE-specific steps)
+- `--push` — publish to ACR; requires `VERITEE_ACR_NAME`
+- `--no-push` — package locally (the default), without an ACR publishing configuration
+- `--verbose` — show full Docker/mkosi logs (hidden by default; the CLI focuses on TEE-specific steps)
+
+Private ACR application images still require Azure authentication for pulling.
+The input image selects that registry; it need not match the publishing registry.
 
 To pull only the base Veritee OS image from ACR:
 

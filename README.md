@@ -29,7 +29,7 @@ Veritee is split across several repositories:
 
 ## How it works
 
-1. **Base OS image.** `veritee-os/` is an mkosi project, driven by Earthly, that
+1. **Base OS image.** `veritee-os/` is an mkosi project, built in a pinned Docker environment, that
    produces an immutable Ubuntu-based guest with a dm-verity protected root
    filesystem. The image includes the attestation server, the measured egress
    proxy and the measured-setup service. Builds are reproducible, so a third
@@ -64,7 +64,8 @@ Veritee is split across several repositories:
 | `examples/` | Example applications; `examples/dapp` is the small default reference app. |
 | `projects/` | DApp projects, including the preprod proof server. |
 | `docs/` | Design notes and runbooks. |
-| `Earthfile` | Build targets for the base OS image, the deployable VM image and the guest binaries. |
+| `build/Dockerfile` | Build environments, guest binary builds and their destinations in the mkosi project. |
+| `build/app-images.conf` | Container references, loaded tags and archive names for app packaging. |
 
 Select an example or a folder outside this checkout with `--app-dir <path>`.
 Use the same path when validating, packaging and registering. See
@@ -97,7 +98,7 @@ patches the VHD footer timestamp, checksum and disk UUID deterministically.
 
 You also need these tools on your `PATH`:
 
-- [Earthly](https://earthly.dev/) and Docker, for image builds and packaging
+- Docker Engine with the Buildx plugin, for image builds and packaging
 - the Azure CLI (`az`), for ACR and deployment workflows
 - [Terraform](https://developer.hashicorp.com/terraform/install), for `create-vm`
 
@@ -113,8 +114,11 @@ references; its placeholders are not ready to package.
 veritee build-base-os-image --azuresnp
 
 # 2. Package the DApp in examples/dapp into a deployable VM image
-export VERITEE_ACR_NAME=myregistry
 veritee package-dapp-deployable-vm-image
+
+# Optional: publish the finished image to your ACR
+export VERITEE_ACR_NAME=myregistry
+veritee package-dapp-deployable-vm-image --push
 
 # 3. Deploy an Azure Confidential VM
 export ARM_SUBSCRIPTION_ID=<subscription-id>

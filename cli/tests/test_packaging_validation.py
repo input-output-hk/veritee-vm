@@ -345,7 +345,7 @@ class PackagingValidationTests(unittest.TestCase):
         events = []
         def build(command, **kwargs):
             events.append("build")
-            staged = Path(next(arg.split("=", 1)[1] for arg in command if arg.startswith("--APP_DIR=")))
+            staged = Path(command[command.index("--app-dir") + 1])
             self.assertFalse((staged / "run.d/certs").exists())
             output = self.directory / cli.DAPP_OUTPUT_DIR
             output.mkdir()
@@ -358,9 +358,8 @@ class PackagingValidationTests(unittest.TestCase):
             patches.enter_context(mock.patch.object(cli.os_release, "pull_selected", side_effect=lambda *a: events.append("pull")))
             patches.enter_context(mock.patch.object(cli, "require_acr_name", return_value="fixture"))
             patches.enter_context(mock.patch.object(cli, "get_acr_access_token", return_value="fixture-token"))
-            patches.enter_context(mock.patch.object(cli, "preflight_check_earthly_secrets"))
-            patches.enter_context(mock.patch.object(cli, "preflight_check_earthly_copy_sources"))
-            patches.enter_context(mock.patch.object(cli, "run_streamable_command", side_effect=build))
+            patches.enter_context(mock.patch.object(cli, "preflight_check_build_inputs"))
+            patches.enter_context(mock.patch.object(cli, "run_native_build", side_effect=build))
             patches.enter_context(mock.patch.object(cli, "write_application_root_hash", return_value="c" * 64))
             patches.enter_context(mock.patch.object(cli, "write_pcr_measurements"))
             patches.enter_context(mock.patch.object(cli, "resolve_policy_template", return_value=Path("fixture-policy")))

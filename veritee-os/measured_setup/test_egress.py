@@ -573,64 +573,7 @@ class StaticFirewallTests(unittest.TestCase):
 
         self.assertIn("dns:\n      - 168.63.129.16", compose)
 
-    def test_warden_routes_earthly_buildkit_through_the_builder_network(self):
-        compose = (
-            self.repo_root
-            / "examples/warden/run.d/docker-compose.yml"
-        ).read_text()
-        earthly_config = (
-            self.repo_root
-            / "examples/warden/run.d/earthly-config.yml"
-        ).read_text()
-        earthly_args = (
-            self.repo_root
-            / "examples/warden/run.d/earthly-proxy.arg"
-        ).read_text()
-        earthfile = (self.repo_root / "Earthfile").read_text()
-        run_script = (
-            self.repo_root / "examples/warden/run.d/main"
-        ).read_text()
-
-        self.assertIn(
-            'EARTHLY_ARG_FILE_PATH: "/etc/temenos/earthly-proxy.arg"',
-            compose,
-        )
-        self.assertIn('EARTHLY_CONFIG: "/etc/temenos/earthly-config.yml"', compose)
-        self.assertIn(
-            "./earthly-proxy.arg:/etc/temenos/earthly-proxy.arg:ro",
-            compose,
-        )
-        self.assertIn("--network\n    - temenos-builder", earthly_config)
-        self.assertIn("--dns\n    - 168.63.129.16", earthly_config)
-        self.assertIn("HTTPS_PROXY=http://172.29.254.1:18080", earthly_config)
-        self.assertIn("HTTPS_PROXY=http://172.29.254.1:18080", earthly_args)
-        git_config_prefix = "- EARTHLY_GIT_CONFIG="
-        encoded_git_config = next(
-            line.strip()[len(git_config_prefix) :]
-            for line in earthly_config.splitlines()
-            if line.strip().startswith(git_config_prefix)
-        )
-        self.assertEqual(
-            base64.b64decode(encoded_git_config).decode(),
-            "[http]\n\tproxy = http://172.29.254.1:18080\n",
-        )
-        self.assertNotIn("HTTP_PROXY=http://172.29.254.1:18080", earthly_config)
-        self.assertNotIn("HTTP_PROXY=http://172.29.254.1:18080", earthly_args)
-        self.assertIn('ARG --global HTTP_PROXY=""', earthfile)
-        self.assertIn('ARG --global https_proxy=""', earthfile)
-        for variable in (
-            "HTTP_PROXY",
-            "HTTPS_PROXY",
-            "NO_PROXY",
-            "http_proxy",
-            "https_proxy",
-            "no_proxy",
-        ):
-            self.assertIn(f"ENV {variable}=${variable}", earthfile)
-        self.assertIn("docker network inspect", run_script)
-        self.assertIn("TEMENOS_BUILDER_GATEWAY", run_script)
-
-    def test_warden_persists_earthly_cache_outside_docker_tmpfs(self):
+    def test_warden_persists_buildkit_cache_outside_docker_tmpfs(self):
         run_script = (
             self.repo_root / "examples/warden/run.d/main"
         ).read_text()
@@ -646,15 +589,15 @@ class StaticFirewallTests(unittest.TestCase):
             run_script,
         )
         self.assertIn(
-            'earthly_cache_dir="$warden_persist_dir/earthly-cache"',
+            'buildkit_cache_dir="$warden_persist_dir/buildkit-cache"',
             run_script,
         )
-        self.assertIn("docker volume inspect earthly-cache", run_script)
+        self.assertIn("docker volume inspect buildx_buildkit_veritee-build0_state", run_script)
         self.assertIn("docker volume create", run_script)
-        self.assertIn('--opt "device=$earthly_cache_dir"', run_script)
+        self.assertIn('--opt "device=$buildkit_cache_dir"', run_script)
 
     def test_debian_snapshot_bootstraps_pinned_ca_over_https(self):
-        earthfile = (self.repo_root / "Earthfile").read_text()
+        earthfile = (self.repo_root / "build/Dockerfile").read_text()
         ca_package = (
             self.repo_root
             / "veritee-os/bootstrap/ca-certificates_20250419_all.deb"
@@ -706,23 +649,14 @@ class StaticFirewallTests(unittest.TestCase):
         self.assertIn("-d ff02::1:2 --sport 546 --dport 547", rules)
 
     def test_os_build_copies_only_measured_setup_runtime_files(self):
-        earthfile = (self.repo_root / "Earthfile").read_text()
+        import shlex
+        recipe = (self.repo_root / "build/Dockerfile").read_text()
+        sources = {
+            source for line in recipe.splitlines() if line.startswith("COPY ")
+            for source in shlex.split(line)[1:-1] if source.startswith("veritee-os/measured_setup/")
+        }
+        self.assertEqual(sources, {"veritee-os/measured_setup/main.py", "veritee-os/measured_setup/egress.py"})
 
-        self.assertNotIn("COPY veritee-os/measured_setup/*", earthfile)
-        self.assertEqual(
-            earthfile.count(
-                "COPY veritee-os/measured_setup/main.py "
-                "mkosi.extra/opt/measured_setup/main.py"
-            ),
-            2,
-        )
-        self.assertEqual(
-            earthfile.count(
-                "COPY veritee-os/measured_setup/egress.py "
-                "mkosi.extra/opt/measured_setup/egress.py"
-            ),
-            2,
-        )
     def test_compose_files_do_not_give_dapps_a_routable_egress_bridge(self):
         compose_files = sorted(
             path for source in (self.repo_root / "examples", self.repo_root / "projects")

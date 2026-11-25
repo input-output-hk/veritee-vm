@@ -19,6 +19,7 @@ import requests
 import typer
 
 
+from . import build as native_build
 from .os_release_carrier import fetch_carrier, read_json, verify_files
 
 BASE_OS_TARGET = "+veritee-os-azure-snp"
@@ -88,6 +89,8 @@ def record_build(repository, output, source, command, mode):
         raise ValueError("source changed during OS build")
     record = {"version": 1, "source": source, "command": command, "attestation_mode": mode,
               "artifacts": [file_descriptor(Path(output) / name) for name in ("disk.raw", "pcrs.json")]}
+    if command[:4] == ["python3", "-m", "veritee.build", "azure-snp-base"]:
+        record["dockerfile_sha256"] = digest((Path(repository) / "build/Dockerfile").read_bytes())
     (Path(output) / "os-build.json").write_text(canonical(record), encoding="utf-8")
 
 
@@ -108,6 +111,18 @@ def create_manifest(input_dir, release_id, version, reference, source_repository
         for target, config in recipes
     ]
     configuration = next((config for command, config in expected if record["command"] == command), None)
+    build = {"command": "build-base-os-image", "recipe_version": 1, "earthly_target": record["command"][3],
+             "profile": "azure-snp", "configuration": configuration,
+             "arguments": {"ATTESTATION_MODE": mode, "ALLOW_UNBOUND_ATTESTATION": False}}
+    if record["command"] == native_build.base_command("config-azure.yaml", mode, False):
+        configuration = "config-azure.yaml"
+        dockerfile_hash = record.get("dockerfile_sha256", "")
+        if not re.fullmatch(r"[0-9a-f]{64}", dockerfile_hash):
+            raise ValueError("missing recorded Dockerfile hash")
+        build = {**build, "recipe_version": 2, "configuration": configuration,
+                 "docker_target": "azure-snp-os-builder", "dockerfile": "build/Dockerfile",
+                 "dockerfile_sha256": dockerfile_hash}
+        del build["earthly_target"]
     if configuration is None or mode not in ("maa", "raw-sev-snp") or record["source"]["modified"] is not False:
         raise ValueError("not a supported bound Azure SNP release build")
     artifacts = [file_descriptor(directory / name) for name in ("disk.raw", "pcrs.json")]
@@ -120,9 +135,7 @@ def create_manifest(input_dir, release_id, version, reference, source_repository
         raise ValueError("invalid PCR4")
     return {"version": 1, "release_id": release_id, "release_version": version, "attestation_mode": mode,
             "source": {"repository": source_repository, **record["source"]},
-            "build": {"command": "build-base-os-image", "recipe_version": 1, "earthly_target": record["command"][3],
-                      "profile": "azure-snp", "configuration": configuration,
-                      "arguments": {"ATTESTATION_MODE": mode, "ALLOW_UNBOUND_ATTESTATION": False}},
+            "build": build,
             "publication": {"reference": reference, "platform": "linux/amd64"}, "artifacts": artifacts,
             "measurements": {"pcr4": pcr4, "pcr4_bank": "sha256", "pcr4_profile": "azure_cvm"}}
 

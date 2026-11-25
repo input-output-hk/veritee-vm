@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:temenos:os-release:v1",
-  "title": "Veritee OS release approval, phase one, recipe version one",
+  "title": "Veritee OS release approval, phase one",
   "$comment": "Use the named definitions for each document. Implementations also enforce canonical UTF-8, byte budgets, trusted enrollment/audience/source policy, exact mode consistency, timestamps and signature validity. This recipe rejects dirty sources and artifact sets other than disk.raw + pcrs.json.",
   "$ref": "#/$defs/releaseManifest",
   "$defs": {
@@ -67,58 +67,119 @@
           }
         },
         "build": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "command",
-            "recipe_version",
-            "earthly_target",
-            "profile",
-            "configuration",
-            "arguments"
-          ],
-          "properties": {
-            "command": {
-              "const": "build-base-os-image"
-            },
-            "recipe_version": {
-              "const": 1
-            },
-            "earthly_target": {
-              "enum": [
-                "+temen-os-tpm",
-                "+veritee-os-azure-snp"
-              ]
-            },
-            "profile": {
-              "const": "azure-snp"
-            },
-            "configuration": {
-              "enum": [
-                "config-snp-azure.yaml",
-                "config-azure.yaml"
-              ]
-            },
-            "arguments": {
+          "oneOf": [
+            {
               "type": "object",
               "additionalProperties": false,
               "required": [
-                "ATTESTATION_MODE",
-                "ALLOW_UNBOUND_ATTESTATION"
+                "command",
+                "recipe_version",
+                "earthly_target",
+                "profile",
+                "configuration",
+                "arguments"
               ],
               "properties": {
-                "ATTESTATION_MODE": {
+                "command": {
+                  "const": "build-base-os-image"
+                },
+                "recipe_version": {
+                  "const": 1
+                },
+                "earthly_target": {
                   "enum": [
-                    "maa",
-                    "raw-sev-snp"
+                    "+temen-os-tpm",
+                    "+veritee-os-azure-snp"
                   ]
                 },
-                "ALLOW_UNBOUND_ATTESTATION": {
-                  "const": false
+                "profile": {
+                  "const": "azure-snp"
+                },
+                "configuration": {
+                  "enum": [
+                    "config-snp-azure.yaml",
+                    "config-azure.yaml"
+                  ]
+                },
+                "arguments": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ATTESTATION_MODE",
+                    "ALLOW_UNBOUND_ATTESTATION"
+                  ],
+                  "properties": {
+                    "ATTESTATION_MODE": {
+                      "enum": [
+                        "maa",
+                        "raw-sev-snp"
+                      ]
+                    },
+                    "ALLOW_UNBOUND_ATTESTATION": {
+                      "const": false
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "command",
+                "recipe_version",
+                "profile",
+                "configuration",
+                "arguments",
+                "docker_target",
+                "dockerfile",
+                "dockerfile_sha256"
+              ],
+              "properties": {
+                "command": {
+                  "const": "build-base-os-image"
+                },
+                "recipe_version": {
+                  "const": 2
+                },
+                "profile": {
+                  "const": "azure-snp"
+                },
+                "configuration": {
+                  "const": "config-azure.yaml"
+                },
+                "arguments": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ATTESTATION_MODE",
+                    "ALLOW_UNBOUND_ATTESTATION"
+                  ],
+                  "properties": {
+                    "ATTESTATION_MODE": {
+                      "enum": [
+                        "maa",
+                        "raw-sev-snp"
+                      ]
+                    },
+                    "ALLOW_UNBOUND_ATTESTATION": {
+                      "const": false
+                    }
+                  }
+                },
+                "docker_target": {
+                  "const": "azure-snp-os-builder"
+                },
+                "dockerfile": {
+                  "const": "build/Dockerfile"
+                },
+                "dockerfile_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
                 }
               }
             }
-          }
+          ]
         },
         "publication": {
           "type": "object",

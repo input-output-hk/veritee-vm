@@ -363,6 +363,7 @@ class AppBuildSourceTests(unittest.TestCase):
             source_path.write_text(source_text)
             run_dir = source_dir / "run.d"
             run_dir.mkdir()
+            (run_dir / "Caddyfile.template").write_text("app.example.test {\n  reverse_proxy app:6300\n}\n")
             (run_dir / "docker-compose.yml").write_text(
                 """services:
   app:
@@ -393,8 +394,8 @@ networks:
                         shipped_metadata,
                     )
                     self.assertEqual(staged_metadata, shipped_metadata)
-                    cli.preflight_check_earthly_copy_sources(
-                        cli.EARTHLY_APP_DISK_TARGET,
+                    cli.preflight_check_build_inputs(
+                        cli.APP_DISK_ACTION,
                         {"APP_DIR": staged_dir_name},
                     )
 
@@ -1877,125 +1878,6 @@ class AttestationHttpHelperTests(unittest.TestCase):
         connection.close.assert_called_once_with()
 
 
-class EarthfileHelperTests(unittest.TestCase):
-    def test_earthfile_target_secrets_reads_only_selected_target(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            earthfile = Path(tmpdir) / "Earthfile"
-            earthfile.write_text(
-                "\n".join(
-                    [
-                        "target-a:",
-                        "    RUN --secret=+secrets/acr_token echo push",
-                        "    RUN --secret dockerhub_user \\",
-                        "        --secret dockerhub_token echo pull",
-                        "",
-                        "target-b:",
-                        "    RUN --secret unrelated echo nope",
-                    ]
-                )
-                + "\n"
-            )
-
-            self.assertEqual(
-                cli.earthfile_target_secrets("target-a", earthfile),
-                {"acr_token", "dockerhub_user", "dockerhub_token"},
-            )
-
-    def test_earthfile_target_copy_sources_drops_flags_and_destination(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            earthfile = Path(tmpdir) / "Earthfile"
-            earthfile.write_text(
-                "\n".join(
-                    [
-                        "target-a:",
-                        "    COPY --dir ${APP_DIR}/run.d ./run.d",
-                        "    COPY file.txt other.txt /dest/",
-                        "",
-                        "target-b:",
-                        "    COPY ignored.txt /dest/",
-                    ]
-                )
-                + "\n"
-            )
-
-            self.assertEqual(
-                cli.earthfile_target_copy_sources("target-a", earthfile),
-                ["${APP_DIR}/run.d", "file.txt", "other.txt"],
-            )
-
-    def test_preflight_check_earthly_copy_sources_substitutes_args(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            (root / "app" / "run.d").mkdir(parents=True)
-            (root / "file.txt").write_text("ok\n")
-            earthfile = root / "Earthfile"
-            earthfile.write_text(
-                "\n".join(
-                    [
-                        "target-a:",
-                        "    COPY --dir ${APP_DIR}/run.d ./run.d",
-                        "    COPY file.txt /dest/",
-                    ]
-                )
-                + "\n"
-            )
-
-            cli.preflight_check_earthly_copy_sources(
-                "target-a",
-                {"APP_DIR": "app"},
-                earthfile,
-            )
-
-    def test_preflight_check_earthly_copy_sources_reports_missing_sources(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            earthfile = Path(tmpdir) / "Earthfile"
-            earthfile.write_text(
-                "\n".join(
-                    [
-                        "target-a:",
-                        "    COPY missing.txt /dest/",
-                    ]
-                )
-                + "\n"
-            )
-
-            with self.assertRaises(cli.DeployerException) as raised:
-                cli.preflight_check_earthly_copy_sources("target-a", {}, earthfile)
-
-            self.assertIn("missing.txt", str(raised.exception))
-
-    def test_preflight_check_earthly_secrets_reports_missing_secret(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            earthfile = Path(tmpdir) / "Earthfile"
-            earthfile.write_text(
-                "\n".join(
-                    [
-                        "target-a:",
-                        "    RUN --secret needed echo nope",
-                    ]
-                )
-                + "\n"
-            )
-
-            with self.assertRaises(cli.DeployerException) as raised:
-                cli.preflight_check_earthly_secrets(
-                    "target-a",
-                    frozenset({"acr_token"}),
-                    earthfile,
-                )
-
-            self.assertIn("needed", str(raised.exception))
-
-    def test_preflight_accepts_optional_dockerhub_secrets_when_unset(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            earthfile = Path(tmpdir) / "Earthfile"
-            earthfile.write_text(
-                "target-a:\n"
-                "    RUN --secret dockerhub_user --secret dockerhub_token echo pull\n"
-            )
-
-            with mock.patch.dict(os.environ, {}, clear=True):
-                cli.preflight_check_earthly_secrets("target-a", earthfile=earthfile)
 
 
 class EnvironmentAndCommandHelperTests(unittest.TestCase):
@@ -2034,56 +1916,13 @@ class EnvironmentAndCommandHelperTests(unittest.TestCase):
                 {"dockerhub_user": "user", "dockerhub_token": "token"},
             )
 
-    def test_anonymous_dockerhub_pull_uses_empty_earthly_secrets_and_warns(self):
+    def test_anonymous_dockerhub_pull_warns(self):
         with mock.patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(
-                cli.earthly_dockerhub_secrets(),
-                {"dockerhub_user": "", "dockerhub_token": ""},
-            )
             with self.assertLogs("veritee", level="WARNING") as captured:
                 cli.warn_if_anonymous_dockerhub_pull()
-
         self.assertIn("pulls will be anonymous", captured.output[0])
 
-    def test_earthly_command_supplies_empty_optional_dockerhub_secrets(self):
-        with mock.patch.dict(os.environ, {}, clear=True):
-            command = cli.build_earthly_app_disk_command(
-                app_dir="examples/dapp",
-                app_container_image="docker.io/example/app@sha256:abc",
-                guest_attestation_image="docker.io/example/attester@sha256:def",
-                registry="example.azurecr.io",
-                acr_token="acr-token",
-                tls_mode="internal",
-            )
 
-        self.assertIn("dockerhub_user=", command)
-        self.assertIn("dockerhub_token=", command)
-
-    def test_secret_flags_and_redaction(self):
-        command = [
-            "earthly",
-            "--secret",
-            "acr_token=secret",
-            "--secret",
-            "dockerhub_token=token",
-            "+target",
-        ]
-
-        self.assertEqual(
-            cli.secret_flags({"one": "1", "two": "2"}),
-            ["--secret", "one=1", "--secret", "two=2"],
-        )
-        self.assertEqual(
-            cli.redact_earthly_command(command),
-            [
-                "earthly",
-                "--secret",
-                "acr_token=<redacted>",
-                "--secret",
-                "dockerhub_token=<redacted>",
-                "+target",
-            ],
-        )
 
     def test_run_checked_redacts_sensitive_subprocess_output(self):
         secret = "https://storage.example/vhd?sig=secret"

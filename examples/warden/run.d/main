@@ -113,15 +113,15 @@ fi
 export TEMENOS_BUILDER_GATEWAY="$builder_gateway"
 
 warden_persist_dir=/mnt/persist/temenos-warden
-earthly_cache_dir="$warden_persist_dir/earthly-cache"
-install -d -m 0700 "$warden_persist_dir/.docker" "$earthly_cache_dir"
+buildkit_cache_dir="$warden_persist_dir/buildkit-cache"
+install -d -m 0700 "$warden_persist_dir/.docker" "$buildkit_cache_dir" "$warden_persist_dir/build-work"
 
-if docker volume inspect earthly-cache >/dev/null 2>&1; then
-    cache_type="$(docker volume inspect --format '{{ index .Options "type" }}' earthly-cache)"
-    cache_options="$(docker volume inspect --format '{{ index .Options "o" }}' earthly-cache)"
-    cache_device="$(docker volume inspect --format '{{ index .Options "device" }}' earthly-cache)"
-    if [ "$cache_type" != "none" ] || [ "$cache_options" != "bind" ] || [ "$cache_device" != "$earthly_cache_dir" ]; then
-        echo "Existing earthly-cache volume is not backed by $earthly_cache_dir" >&2
+if docker volume inspect buildx_buildkit_veritee-build0_state >/dev/null 2>&1; then
+    cache_type="$(docker volume inspect --format '{{ index .Options "type" }}' buildx_buildkit_veritee-build0_state)"
+    cache_options="$(docker volume inspect --format '{{ index .Options "o" }}' buildx_buildkit_veritee-build0_state)"
+    cache_device="$(docker volume inspect --format '{{ index .Options "device" }}' buildx_buildkit_veritee-build0_state)"
+    if [ "$cache_type" != "none" ] || [ "$cache_options" != "bind" ] || [ "$cache_device" != "$buildkit_cache_dir" ]; then
+        echo "Existing buildx_buildkit_veritee-build0_state volume is not backed by $buildkit_cache_dir" >&2
         exit 1
     fi
 else
@@ -129,8 +129,8 @@ else
         --driver local \
         --opt type=none \
         --opt o=bind \
-        --opt "device=$earthly_cache_dir" \
-        earthly-cache >/dev/null
+        --opt "device=$buildkit_cache_dir" \
+        buildx_buildkit_veritee-build0_state >/dev/null
 fi
 
 python3 - <<'PY'

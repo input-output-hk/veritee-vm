@@ -12,6 +12,9 @@ Architecture=x86-64
 
 [Content]
 PackageDirectories=../docker-packages
+{% if debug %}
+ExtraTrees=mkosi.debug
+{% endif %}
 Bootable=yes
 Bootloader=uki
 

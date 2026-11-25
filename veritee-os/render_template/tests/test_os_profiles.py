@@ -1,3 +1,4 @@
+import configparser
 import subprocess
 import tempfile
 import unittest
@@ -26,6 +27,13 @@ def active_setting(rendered: str, name: str) -> str:
     if len(matches) != 1:
         raise AssertionError(f"expected one active {name} setting, got {matches}")
     return matches[0]
+
+
+def extra_trees(profile: dict) -> list[str]:
+    config = configparser.ConfigParser(interpolation=None)
+    config.read_string(render_profile(ROOTFS / "mkosi.conf.j2", profile))
+    # mkosi loads mkosi.extra automatically, before explicitly configured trees.
+    return ["mkosi.extra", *config["Content"].get("ExtraTrees", "").split()]
 
 
 def assert_default_deny_egress(test_case: unittest.TestCase, profile: dict) -> None:
@@ -91,9 +99,13 @@ class ReleaseOsProfileTests(unittest.TestCase):
         assert_firewall_syntax(self, self.profile)
 
     def test_release_image_omits_debug_services(self):
-        rendered = render_profile(ROOTFS / "copy_services.sh.j2", self.profile)
-        self.assertNotIn("start_ssh.service", rendered)
-        self.assertNotIn("restart-serial-console.service", rendered)
+        self.assertEqual(extra_trees(self.profile), ["mkosi.extra"])
+        wants = ROOTFS / "mkosi.extra/etc/systemd/system/multi-user.target.wants"
+        self.assertEqual({p.name for p in wants.iterdir()}, {
+            "azure-provisioning.service", "attestation_server.service",
+        })
+        for unit in wants.iterdir():
+            self.assertEqual(unit.readlink().as_posix(), "/etc/systemd/system/" + unit.name)
 
 
 class DebugOsProfileTests(unittest.TestCase):
@@ -121,13 +133,13 @@ class DebugOsProfileTests(unittest.TestCase):
         assert_firewall_syntax(self, self.profile)
 
     def test_debug_image_includes_debug_services(self):
-        rendered = render_profile(ROOTFS / "copy_services.sh.j2", self.profile)
-        self.assertIn("start_ssh.service", rendered)
-        self.assertIn("restart-serial-console.service", rendered)
-        self.assertIn("multi-user.target.wants/start_ssh.service", rendered)
-        self.assertIn(
-            "multi-user.target.wants/restart-serial-console.service", rendered
-        )
+        self.assertEqual(extra_trees(self.profile), ["mkosi.extra", "mkosi.debug"])
+        wants = ROOTFS / "mkosi.debug/etc/systemd/system/multi-user.target.wants"
+        self.assertEqual({p.name for p in wants.iterdir()}, {
+            "start_ssh.service", "restart-serial-console.service",
+        })
+        for unit in wants.iterdir():
+            self.assertEqual(unit.readlink().as_posix(), "/etc/systemd/system/" + unit.name)
 
 
 if __name__ == "__main__":

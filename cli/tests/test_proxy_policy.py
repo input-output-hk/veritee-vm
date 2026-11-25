@@ -102,14 +102,8 @@ class ProxyPolicyTests(unittest.TestCase):
     def test_systemd_and_both_os_targets_use_shared_policy_installer(self):
         unit = (REPO_ROOT / "services/attestation_server.service").read_text()
         self.assertIn(f"Environment=DAPP_PROXY_POLICY_FILE={PROXY_POLICY_PATH}\n", unit)
-        earthfile = (REPO_ROOT / "Earthfile").read_text()
-        self.assertEqual(
-            earthfile.count(
-                "COPY cli/veritee/proxy_policy.py "
-                "mkosi.extra/opt/measured_setup/proxy_policy.py"
-            ),
-            2,
-        )
+        recipe = (REPO_ROOT / "build/Dockerfile").read_text()
+        self.assertIn("COPY cli/veritee/proxy_policy.py /rootfs/mkosi.extra/opt/measured_setup/proxy_policy.py", recipe)
 
 
 if __name__ == "__main__":

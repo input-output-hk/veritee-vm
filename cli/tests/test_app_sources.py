@@ -65,8 +65,8 @@ class ExternalAppSourceTests(unittest.TestCase):
             self.assertEqual(staged_compose.stat().st_mode, source_stat.st_mode)
             self.assertEqual(staged_compose.stat().st_mtime_ns, source_stat.st_mtime_ns)
             self.assertEqual((staged / "metadata.json").stat().st_mtime_ns, 0)
-            cli.preflight_check_earthly_copy_sources(
-                cli.EARTHLY_APP_DISK_TARGET, {"APP_DIR": relative},
+            cli.preflight_check_build_inputs(
+                cli.APP_DISK_ACTION, {"APP_DIR": relative},
             )
         self.assertFalse(staged.exists())
         self.assertEqual(validation.source_tree(self.source), before)
@@ -154,48 +154,28 @@ class ExternalAppSourceTests(unittest.TestCase):
         }
         staged_source = ".temenos/app-build/fixture/app"
         for helper, extra in (
-            (cli.build_earthly_app_disk_command, {}),
-            (cli.build_earthly_extend_os_command, {"persist_size": "2G"}),
+            (cli.build_app_disk_command, {}),
+            (cli.build_extend_os_command, {"persist_size": "2G"}),
         ):
             with self.subTest(helper=helper.__name__):
                 command = helper(app_dir=staged_source, **values, **extra)
                 self.assertEqual(
-                    [value for value in command if value.startswith("--APP_DIR=")],
-                    ["--APP_DIR=" + staged_source],
+                    command[command.index("--app-dir") + 1],
+                    staged_source,
+                )
+                self.assertEqual(
+                    command[command.index("--guest-image") + 1],
+                    values["guest_attestation_image"],
                 )
             for missing in ("", " \t"):
                 with self.subTest(helper=helper.__name__, app_dir=missing):
                     with self.assertRaisesRegex(cli.DeployerException, "APP_DIR must be provided explicitly"):
                         helper(app_dir=missing, **values, **extra)
 
-    @unittest.skipUnless(os.environ.get("VERITEE_TEST_EARTHLY"), "Set VERITEE_TEST_EARTHLY to test actual Earthly argument admission")
-    def test_earthly_app_targets_reject_missing_or_empty_source_before_building(self):
-        empty_inputs = self.directory / "empty.inputs"
-        empty_inputs.write_text("")
-        for target in (
-            "veritee-os-azure-snp-combined",
-            cli.EARTHLY_EXTEND_OS_TARGET,
-            cli.EARTHLY_APP_DISK_TARGET,
-        ):
-            for supplied in ([], ["--APP_DIR="]):
-                with self.subTest(target=target, supplied=supplied):
-                    result = subprocess.run([
-                        os.environ["VERITEE_TEST_EARTHLY"], "--no-output",
-                        "--arg-file-path", str(empty_inputs),
-                        "--env-file-path", str(empty_inputs),
-                        "--secret-file-path", str(empty_inputs),
-                        "-P", "+" + target, *supplied,
-                    ], cwd=ROOT, capture_output=True, text=True, timeout=60)
-                    output = result.stdout + result.stderr
-                    self.assertNotEqual(result.returncode, 0, output)
-                    self.assertIn("value not supplied for required ARG: APP_DIR", output)
-                    self.assertNotIn("examples/dapp", output)
-                    self.assertNotIn("debian-systemd", output)
-
     def test_build_command_stages_external_relative_source_in_the_checkout(self):
         def build(command, **kwargs):
             self.assertEqual(kwargs["cwd"], ROOT)
-            staged = ROOT / next(value.split("=", 1)[1] for value in command if value.startswith("--APP_DIR="))
+            staged = ROOT / command[command.index("--app-dir") + 1]
             self.assertTrue(staged.is_dir())
             self.assertEqual(json.loads((staged / "metadata.json").read_bytes())["app_container_image"], self.metadata["app_container_image"])
             return "fixture build"
@@ -204,7 +184,7 @@ class ExternalAppSourceTests(unittest.TestCase):
             relative = os.path.relpath(self.source, Path.cwd())
             with mock.patch.object(cli, "require_acr_name", return_value="fixture"), \
                     mock.patch.object(cli, "get_acr_access_token", return_value="fixture-token"), \
-                    mock.patch.object(cli, "run_streamable_command", side_effect=build) as run:
+                    mock.patch.object(cli, "run_native_build", side_effect=build) as run:
                 result = CliRunner().invoke(cli.app, [
                     "build-app-disk", "--image", self.metadata["app_container_image"],
                     "--app-dir", relative, "--tls-mode", "internal",

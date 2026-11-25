@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Keep the SOURCE_DATE_EPOCH-aware tools at the same upstream version, using
-# packages from the Debian snapshot configured by the Earthfile.
+# packages from the Debian snapshot configured by build/Dockerfile.
 # udev supplies systemd-hwdb, which mkosi uses for both rootfs and initrd.
 apt-get install --assume-yes --no-install-recommends \
   systemd=257.9-1~deb13u1 \
