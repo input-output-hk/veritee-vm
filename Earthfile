@@ -618,6 +618,7 @@ dapp-appdisk:
     # This is the directory where the application disk related files are located. It should contain the Dockerfiles, configuration files and any other files needed to build the application disk.
     # Has a default value for convenience reasons
     ARG APP_DIR="projects/dapp"
+    ARG ACR_REGISTRY=""
     ARG VERITEE_TLS_MODE="internal"
 
     WORKDIR /workdir/disk/container-images
@@ -646,7 +647,10 @@ dapp-appdisk:
     WITH DOCKER
         RUN --secret DOCKERHUB_USER=dockerhub_user \
             --secret DOCKERHUB_TOKEN=dockerhub_token \
-            if [ -n "$DOCKERHUB_USER" ] && [ -n "$DOCKERHUB_TOKEN" ]; then \
+            --secret ACR_TOKEN=acr_token \
+            if [ -n "$ACR_REGISTRY" ]; then \
+                echo "$ACR_TOKEN" | docker login "$ACR_REGISTRY" -u 00000000-0000-0000-0000-000000000000 --password-stdin; \
+            elif [ -n "$DOCKERHUB_USER" ] && [ -n "$DOCKERHUB_TOKEN" ]; then \
                 echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin; \
             else \
                 echo "WARNING: Docker Hub credentials are unset; pulling anonymously" >&2; \

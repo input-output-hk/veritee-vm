@@ -2800,6 +2800,15 @@ def acr_registry(acr_name: str) -> str:
     return f"{acr_name}.azurecr.io"
 
 
+def application_image_pull_auth(image: str) -> tuple[str, str]:
+    """Authenticate an ACR input independently of the optional publish target."""
+    host = image.split("/", 1)[0].lower()
+    match = re.fullmatch(r"([a-z0-9]{5,50})\.azurecr\.io", host)
+    if match is None:
+        return "", ""
+    return host, get_acr_access_token(match.group(1))
+
+
 def slugify_dapp_name(name: str) -> str:
     slug = re.sub(r"[^a-z0-9-]+", "-", name.lower()).strip("-")
     if not slug:
@@ -5351,7 +5360,7 @@ def hydrate_policy_from_attestation(
 
 @app.command("build-app-disk", rich_help_panel=COMMAND_PANEL_IMAGES)
 def build_app_disk(
-    image: Annotated[str, typer.Option(help="ACR image to embed in the application disk")],
+    image: Annotated[str, typer.Option(help="Container image to embed in the application disk")],
     app_dir: Annotated[str, typer.Option(help="Path to the application directory. Must contain the application disk run/setup files")] = "",
     tls_mode: Annotated[Optional[str], typer.Option("--tls-mode", help="TLS mode to embed in the DApp disk: internal or azure_vault")] = None,
     tls_keyvault_name: Annotated[Optional[str], typer.Option("--tls-keyvault-name", help="Azure Key Vault name to include in the measured egress policy")] = None,
@@ -5378,9 +5387,7 @@ def build_app_disk(
     guest_attestation_image = resolve_guest_attestation_image(guest_attestation_image)
     warn_if_anonymous_dockerhub_pull()
     preflight_check_earthly_secrets(EARTHLY_APP_DISK_TARGET)
-    acr_name = require_acr_name()
-    registry = acr_registry(acr_name)
-    acr_token = get_acr_access_token(acr_name)
+    registry, acr_token = application_image_pull_auth(app_container_image)
 
     if not verbose:
         print_quiet_earthly_hint()
@@ -5405,7 +5412,7 @@ def build_app_disk(
             tls_mode=tls_mode,
         )
         display_command = redact_earthly_command(command)
-        log.info("Earthly (+dapp-appdisk) pulls from %s and builds local/application_disk.raw.", registry)
+        log.info("Earthly (+dapp-appdisk) embeds %s and builds local/application_disk.raw.", app_container_image)
 
         stdout = run_streamable_command(
             command,
@@ -5422,7 +5429,7 @@ def build_app_disk(
 @app.command("package-dapp-deployable-vm-image", rich_help_panel=COMMAND_PANEL_IMAGES)
 def package_dapp_deployable_vm_image(
     app_dir: Annotated[str, typer.Option(help="DApp source directory containing metadata.json")] = str(DEFAULT_APP_DIR),
-    push: Annotated[bool, typer.Option("--push/--no-push", help="Push the deployable VM image to Azure Container Registry")] = True,
+    push: Annotated[bool, typer.Option("--push/--no-push", help="Publish the deployable VM image to Azure Container Registry after packaging")] = False,
     debug: Annotated[bool, typer.Option()] = False,
     persist_size: Annotated[
         Optional[str],
@@ -5449,21 +5456,20 @@ def package_dapp_deployable_vm_image(
 
     app_dir_path = Path(app_dir)
     metadata = load_app_source_metadata(app_dir_path)
+    acr_name = require_acr_name() if push else None
+    deployable_vm_image = resolve_deployable_vm_image(metadata, acr_name) if push else None
     selected_os = os_release.resolve_selection(os_release_key, base_os_image=metadata["base_os_image"])
     selected_manifest = json.loads(selected_os["manifest"])
     if metadata["base_os_image"] != selected_manifest["publication"]["reference"]:
         raise DeployerException("Project base_os_image disagrees with the selected accepted OS manifest")
     persist_size = resolve_persist_size(persist_size, metadata)
-    acr_name = require_acr_name()
-    registry = acr_registry(acr_name)
-    deployable_vm_image = resolve_deployable_vm_image(metadata, acr_name)
 
     print_phase("PACKAGE INTRO & METADATA", 1, 6)
 
     log.info("=== Veritee package-dapp-deployable-vm-image ===")
     log.info(
         "This is a packaging operation, not a plain docker build. Veritee pulls a "
-        "base Veritee OS image and an application container image from ACR, embeds "
+        "base Veritee OS image and an application container image, embeds "
         "the app into dm-verity partitions on an Azure SNP-ready VM image, and "
         "generates TEE measurements used for attestation."
     )
@@ -5499,9 +5505,9 @@ def package_dapp_deployable_vm_image(
 
     print_phase("PACKAGE DEPLOYABLE VM IMAGE", 3, 6)
 
-    acr_token = get_acr_access_token(acr_name)
+    registry, acr_token = application_image_pull_auth(metadata["app_container_image"])
     print_tee_step(
-        f"Pulling application container image from ACR ({metadata['app_container_image']})..."
+        f"Pulling application container image ({metadata['app_container_image']})..."
     )
     log.info(
         "Earthly (+veritee-os-azure-snp-extend-os) packages the application "
@@ -5603,7 +5609,7 @@ def package_dapp_deployable_vm_image(
         )
         log.info(color_text(f" ✓ Published deployable VM image: {deployable_vm_image}", COLOR_GREEN))
     else:
-        log.info("Skipping ACR push (--no-push).")
+        log.info("Image packaged locally. Use --push to publish to ACR.")
 
     log.info(
         "Deployable VM image ready. Deploy with: veritee create-vm --azuresnp"
