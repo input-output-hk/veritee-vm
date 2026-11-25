@@ -24,6 +24,8 @@ def main():
         subprocess.run(["dpkg-deb", "--build", "--root-owner-group", str(control.parent.parent),
                         str(extra / "fixture.deb")], check=True)
         pins = [f"{p['name']}={p['version']}" for p in lock["packages"]]
+        # Docker's package hook needs groupadd inside the target filesystem.
+        pins.append("passwd=1:4.8.1-2ubuntu2.2")
         (root / "mkosi.conf").write_text(
             "[Distribution]\nDistribution=ubuntu\nRelease=jammy\nArchitecture=x86-64\n"
             "[Content]\nBootable=no\nWithRecommends=no\n"
