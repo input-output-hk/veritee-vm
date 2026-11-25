@@ -34,6 +34,7 @@ from veritee.outbound import (
     validate_compose_egress_boundary,
 )
 from veritee.proxy_policy import validate_proxy_allowed_paths
+from veritee import build as native_build
 from veritee.http_helpers import ResolvedHttpsConnection
 
 from cryptography.exceptions import InvalidSignature
@@ -2066,7 +2067,7 @@ def app_build_context(app_dir: Optional[Path]) -> Iterator[Path]:
 
 
 def build_from_checkout(command):
-    """Keep Earthly, relative artifacts and output paths in one checkout context."""
+    """Keep Docker builds, relative artifacts and output paths in one checkout context."""
     @wraps(command)
     def run(*args, **kwargs):
         arguments = signature(command).bind(*args, **kwargs)
@@ -2926,6 +2927,15 @@ def acr_registry(acr_name: str) -> str:
     return f"{acr_name}.azurecr.io"
 
 
+def application_image_pull_auth(image: str) -> tuple[str, str]:
+    """Authenticate an ACR input independently of the optional publish target."""
+    host = image.split("/", 1)[0].lower()
+    match = re.fullmatch(r"([a-z0-9]{5,50})\.azurecr\.io", host)
+    if match is None:
+        return "", ""
+    return host, get_acr_access_token(match.group(1))
+
+
 def slugify_dapp_name(name: str) -> str:
     slug = re.sub(r"[^a-z0-9-]+", "-", name.lower()).strip("-")
     if not slug:
@@ -3185,21 +3195,8 @@ def base_os_push_artifacts() -> List[str]:
     ]
 
 
-def build_earthly_base_os_command(
-    *,
-    os_config: str,
-    attestation_mode: AttestationMode,
-    allow_unbound_attestation: bool,
-) -> List[str]:
-    return [
-        "earthly",
-        "--no-cache",
-        "-P",
-        "+veritee-os-azure-snp",
-        f"--OS_CONFIG={os_config}",
-        f"--ATTESTATION_MODE={attestation_mode.value}",
-        f"--ALLOW_UNBOUND_ATTESTATION={str(allow_unbound_attestation).lower()}",
-    ]
+def build_base_os_command(*, os_config, attestation_mode, allow_unbound_attestation):
+    return native_build.base_command(os_config, attestation_mode.value, allow_unbound_attestation)
 
 
 def validate_unbound_attestation_build(
@@ -3263,17 +3260,15 @@ def ensure_publish_disk_space(artifact_dir: Path, artifact_files: List[str]) -> 
     )
 
 
-EARTHLY_EXTEND_OS_TARGET = "veritee-os-azure-snp-extend-os"
-EARTHLY_APP_DISK_TARGET = "dapp-appdisk"
-# Secret names the deployer supplies to Earthly via --secret flags. Docker Hub
-# values are empty when credentials are omitted, which lets pulls proceed
-# anonymously without weakening the required ACR authentication path.
-EARTHLY_CLI_SECRET_NAMES: FrozenSet[str] = frozenset(
-    {"acr_token", "dockerhub_user", "dockerhub_token"}
-)
-# Names documented in the top-level README's environment-variable table.
-DOCKERHUB_USER_ENV_VAR = "DOCKERHUB_USER"
-DOCKERHUB_TOKEN_ENV_VAR = "DOCKERHUB_TOKEN"
+def warn_if_anonymous_dockerhub_pull() -> None:
+    if not dockerhub_env_secrets():
+        log.warning(
+            "%s/%s are not set; Docker Hub pulls will be anonymous and may "
+            "be rate-limited.",
+            DOCKERHUB_USER_ENV_VAR,
+            DOCKERHUB_TOKEN_ENV_VAR,
+        )
+
 
 
 def dockerhub_env_secrets() -> Dict[str, str]:
@@ -3295,248 +3290,44 @@ def dockerhub_env_secrets() -> Dict[str, str]:
     return {"dockerhub_user": user, "dockerhub_token": token}
 
 
-def cli_secret_names() -> FrozenSet[str]:
-    """All Earthly secret names the deployer can supply in this environment."""
-    dockerhub_env_secrets()
-    return EARTHLY_CLI_SECRET_NAMES
+
+DOCKERHUB_USER_ENV_VAR = "DOCKERHUB_USER"
+DOCKERHUB_TOKEN_ENV_VAR = "DOCKERHUB_TOKEN"
+
+APP_DISK_ACTION = "app"
+EXTEND_OS_ACTION = "extend"
 
 
-def earthly_dockerhub_secrets() -> Dict[str, str]:
-    """Return both Earthly secrets, using empty values for anonymous pulls."""
-    return dockerhub_env_secrets() or {
-        "dockerhub_user": "",
-        "dockerhub_token": "",
-    }
+def preflight_check_build_inputs(action, args):
+    try:
+        native_build.check_inputs(Path.cwd(), action, args.get("APP_DIR"))
+    except native_build.BuildError as error:
+        raise DeployerException(str(error)) from error
 
 
-def warn_if_anonymous_dockerhub_pull() -> None:
-    if not dockerhub_env_secrets():
-        log.warning(
-            "%s/%s are not set; Docker Hub pulls will be anonymous and may "
-            "be rate-limited.",
-            DOCKERHUB_USER_ENV_VAR,
-            DOCKERHUB_TOKEN_ENV_VAR,
-        )
-
-
-def secret_flags(secret_values: Dict[str, str]) -> List[str]:
-    flags: List[str] = []
-    for name, value in secret_values.items():
-        flags.extend(["--secret", f"{name}={value}"])
-    return flags
-
-_EARTHFILE_TARGET_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*):\s*(?:#.*)?$")
-_EARTHFILE_SECRET_RE = re.compile(
-    r"--secret[= ]+(?:[A-Za-z_][A-Za-z0-9_]*=)?([A-Za-z0-9._/+-]+)"
-)
-
-
-def _earthfile_target_lines(target: str, earthfile: Path) -> List[str]:
-    """Return the logical lines of one Earthfile target's body.
-
-    Backslash continuations are joined into single lines. Scans only the named
-    target's own body, not targets it builds FROM or functions it calls with
-    DO.
-    """
-    if not earthfile.is_file():
-        raise DeployerException(
-            f"Earthfile not found at {earthfile}. "
-            "Run this command from the veritee repository root."
-        )
-
-    lines: List[str] = []
-    in_target = False
-    pending = ""
-    for line in earthfile.read_text().splitlines():
-        target_match = _EARTHFILE_TARGET_RE.match(line)
-        if target_match:
-            in_target = target_match.group(1) == target
-            pending = ""
-            continue
-        if not in_target:
-            continue
-        if line.rstrip().endswith("\\"):
-            pending += line.rstrip()[:-1] + " "
-            continue
-        lines.append(pending + line)
-        pending = ""
-
-    return lines
-
-
-def earthfile_target_secrets(target: str, earthfile: Path) -> Set[str]:
-    """Return the secret names referenced by one Earthfile target."""
-    secret_names: Set[str] = set()
-    for line in _earthfile_target_lines(target, earthfile):
-        for secret_match in _EARTHFILE_SECRET_RE.finditer(line):
-            secret_names.add(secret_match.group(1).removeprefix("+secrets/"))
-
-    return secret_names
-
-
-_EARTHFILE_COPY_RE = re.compile(r"^\s*COPY\s+(.+)$")
-
-
-def earthfile_target_copy_sources(target: str, earthfile: Path) -> List[str]:
-    """Return the COPY source tokens of one Earthfile target.
-
-    Flag tokens (--dir, --chmod=..., ...) are dropped; the final token of each
-    COPY is its destination, everything before it is a source.
-    """
-    sources: List[str] = []
-    for line in _earthfile_target_lines(target, earthfile):
-        copy_match = _EARTHFILE_COPY_RE.match(line)
-        if not copy_match:
-            continue
-        tokens = [t for t in copy_match.group(1).split() if not t.startswith("--")]
-        if len(tokens) >= 2:
-            sources.extend(tokens[:-1])
-    return sources
-
-
-def preflight_check_earthly_copy_sources(
-    target: str,
-    arg_values: Dict[str, str],
-    earthfile: Optional[Path] = None,
-) -> None:
-    """Fail fast if the Earthly target COPYs context paths that do not exist.
-
-    Substitutes known ARG values into the COPY sources and checks each against
-    the build context (the Earthfile's directory). Artifact references
-    (+target/...) and sources with unresolved variables are skipped, since
-    they cannot be verified on the host.
-    """
-    if earthfile is None:
-        earthfile = Path.cwd() / "Earthfile"
-    context_root = earthfile.parent
-
-    missing: List[str] = []
-    for source in earthfile_target_copy_sources(target, earthfile):
-        resolved = source
-        for name in sorted(arg_values, key=len, reverse=True):
-            resolved = resolved.replace(f"${{{name}}}", arg_values[name])
-            resolved = resolved.replace(f"${name}", arg_values[name])
-        if "+" in resolved or "$" in resolved:
-            continue
-        pattern = resolved.rstrip("/")
-        if any(char in pattern for char in "*?["):
-            if not glob.glob(str(context_root / pattern)):
-                missing.append(f"{source} (no match for {pattern})")
-        elif not (context_root / pattern).exists():
-            missing.append(f"{source} ({pattern})")
-
-    if missing:
-        raise DeployerException(
-            f"Earthly target +{target} COPYs sources missing from the build "
-            f"context at {context_root}: {'; '.join(missing)}. The build "
-            "would only fail once the COPY step executes, so aborting before "
-            "building."
-        )
-
-
-def preflight_check_earthly_secrets(
-    target: str,
-    provided_secret_names: Optional[FrozenSet[str]] = None,
-    earthfile: Optional[Path] = None,
-) -> None:
-    """Fail fast if the Earthly target needs secrets this CLI does not pass.
-
-    Earthly only resolves secrets when the referencing RUN executes, which can
-    be a long time into a build. Checking up front turns an hours-late
-    "unable to lookup secret" failure into an immediate, explicit error.
-    """
-    if provided_secret_names is None:
-        provided_secret_names = cli_secret_names()
-    if earthfile is None:
-        earthfile = Path.cwd() / "Earthfile"
-
-    required = earthfile_target_secrets(target, earthfile)
-    missing = sorted(required - set(provided_secret_names))
-    if missing:
-        supplied = ", ".join(sorted(provided_secret_names)) or "none"
-        hint = (
-            f" Docker Hub credentials can be supplied via the "
-            f"{DOCKERHUB_USER_ENV_VAR} and {DOCKERHUB_TOKEN_ENV_VAR} "
-            "environment variables (use a read-only access token)."
-            if {"dockerhub_user", "dockerhub_token"} & set(missing)
-            else ""
-        )
-        raise DeployerException(
-            f"Earthly target +{target} references secrets this CLI does not "
-            f"supply: {', '.join(missing)} (supplied: {supplied}). The build "
-            "would only fail once the referencing RUN step executes, so "
-            f"aborting before building.{hint}"
-        )
-
-
-def build_earthly_extend_os_command(
-    *,
-    app_dir: str,
-    persist_size: str,
-    app_container_image: str,
-    guest_attestation_image: str,
-    registry: str,
-    acr_token: str,
-    tls_mode: str,
-) -> List[str]:
-    if not app_dir or not app_dir.strip():
+def build_extend_os_command(*, app_dir, persist_size, app_container_image,
+                            guest_attestation_image, registry, acr_token, tls_mode):
+    if app_dir is None or not str(app_dir).strip():
         raise DeployerException("APP_DIR must be provided explicitly for an application disk build")
-    return [
-        "earthly",
-        "--no-cache",
-        "--secret",
-        f"acr_token={acr_token}",
-        *secret_flags(earthly_dockerhub_secrets()),
-        "-P",
-        f"+{EARTHLY_EXTEND_OS_TARGET}",
-        f"--PERSIST_SIZE={persist_size}",
-        f"--OS_RAW={DEFAULT_OS_DISK_DIR / 'disk.raw'}",
-        f"--USER_DOCKER={app_container_image}",
-        f"--GUEST_ATTESTATION_IMAGE={guest_attestation_image}",
-        f"--APP_DIR={app_dir}",
-        f"--ACR_REGISTRY={registry}",
-        f"--VERITEE_TLS_MODE={tls_mode}",
-    ]
+    return native_build.application_command("extend", app_dir=app_dir,
+        image=app_container_image, guest_image=guest_attestation_image,
+        tls_mode=tls_mode, persist_size=persist_size)
 
 
-def build_earthly_app_disk_command(
-    *,
-    app_dir: str,
-    app_container_image: str,
-    guest_attestation_image: str,
-    registry: str,
-    acr_token: str,
-    tls_mode: str,
-) -> List[str]:
-    if not app_dir or not app_dir.strip():
+def build_app_disk_command(*, app_dir, app_container_image, guest_attestation_image,
+                           registry, acr_token, tls_mode):
+    if app_dir is None or not str(app_dir).strip():
         raise DeployerException("APP_DIR must be provided explicitly for an application disk build")
-    command = [
-        "earthly",
-        "--no-cache",
-        "--secret",
-        f"acr_token={acr_token}",
-        *secret_flags(earthly_dockerhub_secrets()),
-        "-P",
-        f"+{EARTHLY_APP_DISK_TARGET}",
-        f"--USER_DOCKER={app_container_image}",
-        f"--GUEST_ATTESTATION_IMAGE={guest_attestation_image}",
-        f"--ACR_REGISTRY={registry}",
-        f"--VERITEE_TLS_MODE={tls_mode}",
-        f"--APP_DIR={app_dir}",
-    ]
-
-    return command
+    return native_build.application_command("app", app_dir=app_dir,
+        image=app_container_image, guest_image=guest_attestation_image, tls_mode=tls_mode)
 
 
-def redact_earthly_command(command: List[str]) -> List[str]:
-    display_command = command.copy()
-    for index, value in enumerate(display_command):
-        if index > 0 and display_command[index - 1] == "--secret" and "=" in value:
-            name = value.split("=", 1)[0]
-            display_command[index] = f"{name}=<redacted>"
-
-    return display_command
-
+def run_native_build(command, *, verbose, cwd=None, registry="", acr_token=""):
+    try:
+        return native_build.run(command, repo=cwd or Path.cwd(), verbose=verbose,
+                                registry=registry, token=acr_token)
+    except native_build.BuildError as error:
+        raise DeployerException(str(error)) from error
 
 
 def run_checked(
@@ -4800,9 +4591,9 @@ def print_tee_step(message: str) -> None:
     log.info(f"[TEE] {message}")
 
 
-def print_quiet_earthly_hint() -> None:
+def print_quiet_build_hint() -> None:
     log.info(
-        "Earthly output is hidden by default. Pass --verbose to inspect the "
+        "Docker build output is hidden by default. Pass --verbose to inspect the "
         "standard container build steps."
     )
 
@@ -5306,8 +5097,6 @@ def build_base_os_image(
     ] = False,
 ):
     """Build the base Veritee OS image. Use package-dapp-deployable-vm-image to package a DApp."""
-    if not azure_snp:
-        raise typer.BadParameter("pass --azuresnp to select the Azure SEV-SNP build")
     validate_unbound_attestation_build(
         debug=debug,
         allow_unbound_attestation=allow_unbound_attestation,
@@ -5328,17 +5117,17 @@ def build_base_os_image(
         log.info("Building release base Veritee OS image...")
 
     if not verbose:
-        print_quiet_earthly_hint()
+        print_quiet_build_hint()
 
     os_config = f"config-azure.{'debug.' if debug else ''}yaml"
-    command = build_earthly_base_os_command(
+    command = build_base_os_command(
         os_config=os_config,
         attestation_mode=attestation_mode,
         allow_unbound_attestation=allow_unbound_attestation,
     )
 
     build_source = os_release.source_identity(Path.cwd()) if not debug else None
-    stdout = run_streamable_command(command, verbose=verbose, cwd=Path.cwd())
+    stdout = run_native_build(command, verbose=verbose, cwd=Path.cwd())
 
     disk_output_dir = Path.cwd() / DEFAULT_OS_DISK_DIR
     disk_pcrs_path = disk_output_dir / PCRS_FILE
@@ -5503,13 +5292,13 @@ def hydrate_policy_from_attestation(
 @app.command("build-app-disk", rich_help_panel=COMMAND_PANEL_IMAGES)
 @build_from_checkout
 def build_app_disk(
-    image: Annotated[str, typer.Option(help="ACR image to embed in the application disk")],
+    image: Annotated[str, typer.Option(help="Container image to embed in the application disk")],
     app_dir: Annotated[str, typer.Option(help="Path to the application directory. Must contain the application disk run/setup files")] = "",
     tls_mode: Annotated[Optional[str], typer.Option("--tls-mode", help="TLS mode to embed in the DApp disk: internal or azure_vault")] = None,
     tls_keyvault_name: Annotated[Optional[str], typer.Option("--tls-keyvault-name", help="Azure Key Vault name to include in the measured egress policy")] = None,
     allow_warden_egress_profile: Annotated[bool, typer.Option("--allow-warden-egress-profile", help="Permit the broad, measured Warden egress profile")] = False,
     guest_attestation_image: Annotated[Optional[str], typer.Option(help=f"Guest attestation helper image. Defaults to VERITEE_GUEST_ATTESTATION_IMAGE or {DEFAULT_GUEST_ATTESTATION_IMAGE}")] = None,
-    verbose: Annotated[bool, typer.Option(help="Show full Earthly build logs")] = False,
+    verbose: Annotated[bool, typer.Option(help="Show full Docker build logs")] = False,
 ):
     """Build the standalone application disk."""
     print_phase("BUILD APPLICATION DISK", 1, 1)
@@ -5529,13 +5318,10 @@ def build_app_disk(
     )
     guest_attestation_image = resolve_guest_attestation_image(guest_attestation_image)
     warn_if_anonymous_dockerhub_pull()
-    preflight_check_earthly_secrets(EARTHLY_APP_DISK_TARGET)
-    acr_name = require_acr_name()
-    registry = acr_registry(acr_name)
-    acr_token = get_acr_access_token(acr_name)
+    registry, acr_token = application_image_pull_auth(app_container_image)
 
     if not verbose:
-        print_quiet_earthly_hint()
+        print_quiet_build_hint()
 
     with prepared_app_build_source(
         source_app_dir,
@@ -5544,11 +5330,11 @@ def build_app_disk(
         app_container_image=app_container_image,
         allow_warden_egress_profile=allow_warden_egress_profile,
     ) as (build_app_dir, _):
-        preflight_check_earthly_copy_sources(
-            EARTHLY_APP_DISK_TARGET,
+        preflight_check_build_inputs(
+            APP_DISK_ACTION,
             {"APP_DIR": build_app_dir},
         )
-        command = build_earthly_app_disk_command(
+        command = build_app_disk_command(
             app_dir=build_app_dir,
             app_container_image=app_container_image,
             guest_attestation_image=guest_attestation_image,
@@ -5556,14 +5342,10 @@ def build_app_disk(
             acr_token=acr_token,
             tls_mode=tls_mode,
         )
-        display_command = redact_earthly_command(command)
-        log.info("Earthly (+dapp-appdisk) pulls from %s and builds local/application_disk.raw.", registry)
+        log.info("Docker app build embeds %s and writes local/application_disk.raw.", app_container_image)
 
-        stdout = run_streamable_command(
-            command,
-            verbose=verbose,
-            cwd=Path.cwd(),
-            display_command=display_command,
+        stdout = run_native_build(
+            command, verbose=verbose, cwd=Path.cwd(), registry=registry, acr_token=acr_token,
         )
 
     log.info(color_text(" ✓ Application disk ready in local/.", COLOR_GREEN))
@@ -5575,7 +5357,7 @@ def build_app_disk(
 @build_from_checkout
 def package_dapp_deployable_vm_image(
     app_dir: Annotated[Optional[Path], typer.Option(help="DApp source directory containing metadata.json; defaults to examples/dapp in the checkout")] = None,
-    push: Annotated[bool, typer.Option("--push/--no-push", help="Push the deployable VM image to Azure Container Registry")] = True,
+    push: Annotated[bool, typer.Option("--push/--no-push", help="Publish the deployable VM image to Azure Container Registry after packaging")] = False,
     debug: Annotated[bool, typer.Option()] = False,
     persist_size: Annotated[
         Optional[str],
@@ -5591,7 +5373,7 @@ def package_dapp_deployable_vm_image(
     tls_keyvault_name: Annotated[Optional[str], typer.Option("--tls-keyvault-name", help="Azure Key Vault name to include in the measured egress policy")] = None,
     allow_warden_egress_profile: Annotated[bool, typer.Option("--allow-warden-egress-profile", help="Permit the broad, measured Warden egress profile")] = False,
     guest_attestation_image: Annotated[Optional[str], typer.Option(help=f"Guest attestation helper image. Defaults to VERITEE_GUEST_ATTESTATION_IMAGE or {DEFAULT_GUEST_ATTESTATION_IMAGE}")] = None,
-    verbose: Annotated[bool, typer.Option(help="Show full Earthly build logs")] = False,
+    verbose: Annotated[bool, typer.Option(help="Show full Docker build logs")] = False,
     os_release_key: Annotated[Optional[str], typer.Option(help="Advanced override: accepted OS manifest SHA-256. Otherwise resolve metadata.base_os_image automatically.")] = None,
     registration_preflight: Annotated[bool, typer.Option("--registration-preflight/--no-registration-preflight", help="Validate against Warden's rebuild recipe before packaging. Disable only for operator images not submitted for registration.")] = True,
 ):
@@ -5603,6 +5385,8 @@ def package_dapp_deployable_vm_image(
 
     app_dir_path = Path(app_dir)
     metadata = load_app_source_metadata(app_dir_path)
+    acr_name = require_acr_name() if push else None
+    deployable_vm_image = resolve_deployable_vm_image(metadata, acr_name) if push else None
     tls_mode = prompt_tls_mode(tls_mode)
     tls_keyvault_name = resolve_packaging_tls_keyvault_name(
         tls_mode=tls_mode, app_dir=app_dir_path, app_name=metadata["name"], value=tls_keyvault_name,
@@ -5625,16 +5409,13 @@ def package_dapp_deployable_vm_image(
     if os_release.carrier_identity(metadata["base_os_image"]) != os_release.carrier_identity(selected_manifest["publication"]["reference"]):
         raise DeployerException("Project base_os_image disagrees with the selected accepted OS manifest")
     persist_size = resolve_persist_size(persist_size, metadata)
-    acr_name = require_acr_name()
-    registry = acr_registry(acr_name)
-    deployable_vm_image = resolve_deployable_vm_image(metadata, acr_name)
 
     print_phase("PACKAGE INTRO & METADATA", 1, 6)
 
     log.info("=== Veritee package-dapp-deployable-vm-image ===")
     log.info(
         "This is a packaging operation, not a plain docker build. Veritee pulls a "
-        "base Veritee OS image and an application container image from ACR, embeds "
+        "base Veritee OS image and an application container image, embeds "
         "the app into dm-verity partitions on an Azure SNP-ready VM image, and "
         "generates TEE measurements used for attestation."
     )
@@ -5643,13 +5424,13 @@ def package_dapp_deployable_vm_image(
     log.info("TLS mode: %s", tls_mode)
     if tls_keyvault_name is not None:
         log.info("Key Vault: %s", tls_keyvault_name)
-    print_quiet_earthly_hint()
+    guest_attestation_image = resolve_guest_attestation_image(guest_attestation_image)
+    print_quiet_build_hint()
 
     warn_if_anonymous_dockerhub_pull()
-    preflight_check_earthly_secrets(EARTHLY_EXTEND_OS_TARGET)
     log.info(
         color_text(
-            f" ✓ Preflight: +{EARTHLY_EXTEND_OS_TARGET} secrets are satisfiable.",
+            " ✓ Container build preflight started.",
             COLOR_GREEN,
         )
     )
@@ -5662,13 +5443,13 @@ def package_dapp_deployable_vm_image(
 
     print_phase("PACKAGE DEPLOYABLE VM IMAGE", 3, 6)
 
-    acr_token = get_acr_access_token(acr_name)
+    registry, acr_token = application_image_pull_auth(metadata["app_container_image"])
     print_tee_step(
-        f"Pulling application container image from ACR ({metadata['app_container_image']})..."
+        f"Pulling application container image ({metadata['app_container_image']})..."
     )
     log.info(
-        "Earthly (+veritee-os-azure-snp-extend-os) packages the application "
-        "container image, creates app/persist partitions, and extends the "
+        "Docker and systemd-repart package the application "
+        "container image, create app/persist partitions, and extend the "
         "base Veritee OS image."
     )
 
@@ -5687,8 +5468,8 @@ def package_dapp_deployable_vm_image(
                 or staged_source["directories"] != validation["source"]["directories"]
                 or shipped_metadata != validation["shipped_metadata"]):
             raise DeployerException("App source changed while staging; retry with stable inputs")
-        preflight_check_earthly_copy_sources(
-            EARTHLY_EXTEND_OS_TARGET,
+        preflight_check_build_inputs(
+            EXTEND_OS_ACTION,
             {
                 "APP_DIR": build_app_dir,
                 "OS_RAW": str(DEFAULT_OS_DISK_DIR / "disk.raw"),
@@ -5696,12 +5477,12 @@ def package_dapp_deployable_vm_image(
         )
         log.info(
             color_text(
-                f" ✓ Preflight: +{EARTHLY_EXTEND_OS_TARGET} COPY sources are present.",
+                " ✓ Preflight: required packaging inputs are present.",
                 COLOR_GREEN,
             )
         )
 
-        command = build_earthly_extend_os_command(
+        command = build_extend_os_command(
             app_dir=build_app_dir,
             persist_size=persist_size,
             app_container_image=metadata["app_container_image"],
@@ -5710,13 +5491,9 @@ def package_dapp_deployable_vm_image(
             acr_token=acr_token,
             tls_mode=tls_mode,
         )
-        display_command = redact_earthly_command(command)
 
-        stdout = run_streamable_command(
-            command,
-            verbose=verbose,
-            cwd=Path.cwd(),
-            display_command=display_command,
+        stdout = run_native_build(
+            command, verbose=verbose, cwd=Path.cwd(), registry=registry, acr_token=acr_token,
         )
 
     log.info(color_text(" ✓ Deployable VM image packaging finished.", COLOR_GREEN))
@@ -5784,7 +5561,7 @@ def package_dapp_deployable_vm_image(
         )
         log.info(color_text(f" ✓ Published deployable VM image: {deployable_vm_image}", COLOR_GREEN))
     else:
-        log.info("Skipping ACR push (--no-push).")
+        log.info("Image packaged locally. Use --push to publish to ACR.")
 
     log.info(
         "Deployable VM image ready. Deploy with: veritee create-vm --azuresnp"

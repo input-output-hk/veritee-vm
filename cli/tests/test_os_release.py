@@ -72,8 +72,10 @@ class ReleaseSigningTests(unittest.TestCase):
             pcrs.write_text('{"measurements":{"4":"' + "e" * 64 + '"}}')
             before = pcrs.read_bytes()
             source = {"commit": "a" * 40, "tree": "b" * 40, "modified": False}
-            command = cli.build_earthly_base_os_command(os_config="config-azure.yaml",
+            command = cli.build_base_os_command(os_config="config-azure.yaml",
                 attestation_mode=cli.AttestationMode.RAW_SEV_SNP, allow_unbound_attestation=False)
+            (directory / "build").mkdir()
+            (directory / "build/Dockerfile").write_text("FROM scratch\n")
             with mock.patch.object(os_release, "source_identity", return_value=source):
                 os_release.record_build(directory, directory, source, command, "raw-sev-snp")
             with self.assertRaisesRegex(ValueError, "digest-pinned"):

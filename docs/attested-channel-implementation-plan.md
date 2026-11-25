@@ -27,7 +27,7 @@ The attestation server on `main` is an **evidence endpoint** — MAA *or* raw SE
 | Ephemeral key | An **RSA-2048 TPM key** (`eph_key_tpm.rs`) used *only* in MAA mode to unwrap MAA's inner AES key — not usable for ECDH/HPKE |
 | Sessions / AEAD / proxy | **None** on `main` |
 | Client verification | Delegated to **Warden** (`POST /dapps/verify_attestation`); CLI can parse both MAA and raw evidence for policy hydration |
-| systemd unit | `ExecStart=/usr/local/bin/attestation_server` (binary installed by Earthly) |
+| systemd unit | `ExecStart=/usr/local/bin/attestation_server` (binary installed by the OS build) |
 
 > **Naming.** The handler is `get_attestation` (feature-gated bodies). Types
 > `AttestationEvidence` / `report_data_binding` live in the server crate (PR #11), not only
@@ -291,7 +291,7 @@ without a TPM.
 ### Phase 5 — VM image integration ✅ (implemented; on-CVM e2e pending)
 
 - Fixed `services/attestation_server.service`:
-  - `ExecStart=/usr/local/bin/attestation_server` (matches the Earthly-installed binary;
+  - `ExecStart=/usr/local/bin/attestation_server` (matches the OS-installed binary;
     the old `target/debug` path under `/opt` was deleted by `mkosi.postinst`).
   - `After=network-online.target measured-setup.service`; `StateDirectory=attestation_server`.
   - Env: `DAPP_UPSTREAM_URL=http://127.0.0.1:8080`, `AKX_EPOCH_FILE=…`, refresh/rotate knobs.

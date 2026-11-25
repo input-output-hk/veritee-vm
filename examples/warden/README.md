@@ -7,7 +7,7 @@ attestation at `/tee_attestation` and the Warden API on every other route.
 The measured `warden` egress profile is required. It grants the Warden app's
 fixed container IP direct Azure DNS, HTTPS, and IMDS access because the Midnight
 Node clients do not honor HTTP CONNECT proxy settings. It also permits the exact
-Docker socket mount so Earthly can reproduce submitted DApps. The socket makes
+Docker socket mount so Docker Buildx can reproduce submitted DApps. The socket makes
 the Warden container part of the guest host TCB; it is not a container-isolation
 boundary.
 
@@ -16,10 +16,10 @@ The pinned Midnight proof server is started by Compose on the private
 health check and passes `TEMENOS_PROOF_SERVER_URL=http://proof-server:6300` to
 the attestation CLI. SRS downloads use the existing measured egress proxy.
 
-Earthly's managed BuildKit daemon runs on the platform-owned
+The pinned BuildKit daemon runs on the platform-owned
 `temenos-builder` bridge. That bridge can use Azure DNS and the measured HTTPS
-proxy, but cannot reach IMDS directly. The measured Earthly configuration also
-passes that proxy to BuildKit and build steps explicitly; Earthly does not
+proxy, but cannot reach IMDS directly. The measured builder environment also
+passes that proxy to BuildKit and build steps explicitly; Buildx does not
 inherit those settings on its own. The pinned Debian CA bootstrap keeps the
 snapshot on HTTPS without granting the builder direct public egress. Docker Hub
 credentials are optional; without them, rebuilds use anonymous pulls and may
@@ -62,7 +62,7 @@ provides access to the secrets above when the same vault is used. A separate
 Blockfrost vault also needs a Key Vault Secrets User role assignment.
 
 The production Warden CVM requires 64 GiB of memory. Image reproduction through
-Earthly can overlap with the Midnight attestation CLI used for anchoring; a
+Docker Buildx can overlap with the Midnight attestation CLI used for anchoring; a
 16 GiB VM has produced V8 heap exhaustion and kernel OOM kills, while 32 GiB
 leaves limited headroom for concurrent builds and chain writes. Deploy with
 `--vm-size Standard_DC16ads_v5` (or a larger confidential-VM size available in
@@ -70,12 +70,13 @@ the target region). `Standard_DC8ads_v5` (32 GiB) is the minimum supported size
 for development and isolated-path testing.
 
 The Warden metadata requests a 32 GiB persistent partition. Startup binds
-Earthly's `earthly-cache` Docker volume to
-`/mnt/persist/temenos-warden/earthly-cache`; without that binding Docker stores
+BuildKit's `buildx_buildkit_veritee-build0_state` volume to
+`/mnt/persist/temenos-warden/buildkit-cache`; without that binding Docker stores
 the cache under the guest's RAM-backed `/var/lib/docker`. The cache is
 disposable build working state and is never a source of trusted measurements.
-The Warden runs `earthly prune --all` after every rebuild attempt, including
-failed builds, so the persistent partition does not accumulate stale layers.
+The CLI removes each build's temporary image and container after completion.
+BuildKit retains its reusable input cache in the bound state volume. The matching
+Warden runtime must use the Docker build recipe rather than Earthly cleanup.
 
 Package with:
 

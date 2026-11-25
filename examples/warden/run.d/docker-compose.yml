@@ -70,8 +70,12 @@ services:
     env_file:
       - ./.warden.env
     environment:
-      EARTHLY_ARG_FILE_PATH: "/etc/temenos/earthly-proxy.arg"
-      EARTHLY_CONFIG: "/etc/temenos/earthly-config.yml"
+      VERITEE_BUILD_BUILDER: "veritee-build"
+      VERITEE_BUILD_NETWORK: "temenos-builder"
+      VERITEE_BUILD_WORK_ROOT: "/var/lib/temenos-warden/build-work"
+      VERITEE_BUILD_HOST_WORK_ROOT: "/mnt/persist/temenos-warden/build-work"
+      VERITEE_BUILD_HTTPS_PROXY: "http://172.29.254.1:18080"
+      VERITEE_BUILD_NO_PROXY: "127.0.0.1,localhost,::1,168.63.129.16,169.254.169.254"
       WARDEN_ENDPOINT: "0.0.0.0:3000"
       WARDEN_ATTESTATION_NETWORK: "preprod"
       WARDEN_ATTESTATION_CONTRACT: "b49a06484fd5c286f821e77586006fbf8a5dfcd93991a0eb13b6a2f6d1aab18a"
@@ -95,8 +99,6 @@ services:
     tmpfs:
       - /run/temenos-warden:mode=0700
     volumes:
-      - ./earthly-config.yml:/etc/temenos/earthly-config.yml:ro
-      - ./earthly-proxy.arg:/etc/temenos/earthly-proxy.arg:ro
       - /mnt/persist/temenos-warden:/var/lib/temenos-warden
       - /var/run/docker.sock:/var/run/docker.sock
     networks:

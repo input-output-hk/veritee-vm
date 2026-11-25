@@ -236,6 +236,14 @@ jobs:
       - name: Run CLI helper tests
         run: python -m unittest discover -s cli/tests -p 'test_cli_helpers.py' -v
 
+      - name: Test optional image publication
+        run: python -m unittest discover -s cli/tests -p 'test_optional_acr.py' -v
+
+      - name: Test native builder and CLI commands
+        run: |
+          python -m unittest discover -s cli/tests -p 'test_build.py' -v
+          python -m unittest discover -s cli/tests -p 'test_veritee_cli.py' -v
+
       - name: Test measured proxy route policy
         run: python -m unittest discover -s cli/tests -p 'test_proxy_policy.py' -v
 

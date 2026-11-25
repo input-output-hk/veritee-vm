@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+from click import unstyle
 from typer.testing import CliRunner
 
 from veritee import cli, os_release
@@ -62,18 +63,19 @@ class CliRenameTests(unittest.TestCase):
             self.assertEqual(key_path.read_bytes(), before)
 
     def test_plain_tpm_flag_is_removed_before_any_build(self):
-        with mock.patch.object(cli, "run_streamable_command") as build:
+        with mock.patch.object(cli, "run_native_build") as build:
             result = CliRunner().invoke(cli.app, ["build-base-os-image", "--tpm"])
         self.assertNotEqual(result.exit_code, 0)
         build.assert_not_called()
         help_result = CliRunner().invoke(cli.app, ["build-base-os-image", "--help"])
-        self.assertIn("--azuresnp", help_result.stdout)
-        self.assertNotIn("--tpm", help_result.stdout)
+        help_text = unstyle(help_result.stdout)
+        self.assertIn("--azuresnp", help_text)
+        self.assertNotIn("--tpm", help_text)
 
     def test_azure_modes_use_the_renamed_base_target_and_output(self):
         for mode in ("maa", "raw-sev-snp"):
             with self.subTest(mode=mode), \
-                    mock.patch.object(cli, "run_streamable_command") as build, \
+                    mock.patch.object(cli, "run_native_build") as build, \
                     mock.patch.object(os_release, "source_identity", return_value={"modified": False}), \
                     mock.patch.object(os_release, "record_build"), \
                     mock.patch.object(cli, "write_pcr_measurements") as measurements, \
@@ -81,18 +83,18 @@ class CliRenameTests(unittest.TestCase):
                 result = CliRunner().invoke(cli.app, ["build-base-os-image", "--azuresnp", "--attestation-mode", mode])
                 self.assertEqual(result.exit_code, 0, result.exception)
                 command = build.call_args.args[0]
-                self.assertIn("+veritee-os-azure-snp", command)
-                self.assertIn("--ATTESTATION_MODE=" + mode, command)
-                self.assertIn("--OS_CONFIG=config-azure.yaml", command)
+                self.assertIn("azure-snp-base", command)
+                self.assertEqual(command[command.index("--attestation-mode") + 1], mode)
+                self.assertEqual(command[command.index("--os-config") + 1], "config-azure.yaml")
                 self.assertEqual(measurements.call_args.args[0], Path.cwd() / "local-base-os/disk.raw")
                 self.assertEqual(measurements.call_args.args[2], "azure-snp")
 
-    def test_packager_targets_exist_without_a_plain_tpm_target(self):
-        text = (REPOSITORY / "Earthfile").read_text()
-        for name in ("veritee-os-azure-snp", "veritee-os-azure-snp-combined", cli.EARTHLY_EXTEND_OS_TARGET, cli.EARTHLY_APP_DISK_TARGET):
-            self.assertIn("\n" + name + ":\n", text)
-        self.assertNotIn("\ntemen-os-tpm:\n", text)
-        self.assertNotIn("\nveritee-os-tpm:\n", text)
+    def test_build_recipes_are_azure_snp_only(self):
+        text = (REPOSITORY / "build/Dockerfile").read_text()
+        self.assertIn("AS azure-snp-os-builder", text)
+        self.assertIn("AS app-disk-builder", text)
+        self.assertFalse((REPOSITORY / "Earthfile").exists())
+
 
     def test_manifest_keeps_the_actual_recipe_for_new_and_historical_build_records(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -106,11 +108,7 @@ class CliRenameTests(unittest.TestCase):
                 ("+temen-os-tpm", "config-snp-azure.yaml"),
             ):
                 with self.subTest(target=target, configuration=configuration):
-                    command = cli.build_earthly_base_os_command(
-                        os_config=configuration, attestation_mode=cli.AttestationMode.MAA,
-                        allow_unbound_attestation=False,
-                    )
-                    command[3] = target
+                    command = ["earthly", "--no-cache", "-P", target, f"--OS_CONFIG={configuration}", "--ATTESTATION_MODE=maa", "--ALLOW_UNBOUND_ATTESTATION=false"]
                     with mock.patch.object(os_release, "source_identity", return_value=source):
                         os_release.record_build(output, output, source, command, "maa")
                     manifest = os_release.create_manifest(
