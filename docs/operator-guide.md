@@ -187,14 +187,21 @@ and the separate OS-maintainer signing workflow. This flow needs a
 version-matched registry; it does not silently migrate an existing deployment.
 
 ```bash
-export VERITEE_ACR_NAME=myregistry
 veritee package-dapp-deployable-vm-image
+
+# Optional: publish the packaged image
+export VERITEE_ACR_NAME=myregistry
+veritee package-dapp-deployable-vm-image --push
 ```
 
 Useful flags:
 
-- `--no-push` — package locally without publishing to ACR
+- `--push` — publish to ACR; requires `VERITEE_ACR_NAME`
+- `--no-push` — package locally (the default), without an ACR publishing configuration
 - `--verbose` — show full Earthly logs (hidden by default; the CLI focuses on TEE-specific steps)
+
+Private ACR application images still require Azure authentication for pulling.
+The input image selects that registry; it need not match the publishing registry.
 
 To pull only the base Veritee OS image from ACR:
 

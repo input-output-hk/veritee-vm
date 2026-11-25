@@ -107,8 +107,11 @@ Build or pull a base OS image, package a DApp, deploy it and register it:
 veritee build-base-os-image --azuresnp
 
 # 2. Package the DApp in projects/dapp into a deployable VM image
-export VERITEE_ACR_NAME=myregistry
 veritee package-dapp-deployable-vm-image
+
+# Optional: publish the finished image to your ACR
+export VERITEE_ACR_NAME=myregistry
+veritee package-dapp-deployable-vm-image --push
 
 # 3. Deploy an Azure Confidential VM
 export ARM_SUBSCRIPTION_ID=<subscription-id>
