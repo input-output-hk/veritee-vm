@@ -1,6 +1,0 @@
-{
-    "name": "MVP : Proof ZK Recovery (by CH)",
-    "description": "Delegated ZK recovery prover, description not to be disclosed until official release.",
-    "app_container_image": "docker.io/stefanix/recovery-proverd@sha256:c47be52b4ed5cbfb506033af506df65eccb49282e88511f2e6bf503b9b32955a",
-    "base_os_image": "temenostest.azurecr.io/temenos/base-os@sha256:f5bd157d1569624bf6749fdca9d5b213aa2375f9591e52e1ace79e492a527553"
-}

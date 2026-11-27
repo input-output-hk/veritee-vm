@@ -60,13 +60,16 @@ Veritee is split across several repositories:
 | `server/akx/` | Attested key-exchange crypto core for the attested channel. |
 | `server/guest_attestation/` | Guest helper image that collects boot and TLS evidence for the DApp. |
 | `services/` | systemd units installed into the base OS image. |
-| `projects/` | DApp projects. `projects/dapp` is the default; `projects/templates/` holds the shared setup and startup hooks. |
+| `veritee-os/app-disk/` | Platform partition definitions and default setup/startup hooks. |
+| `examples/` | Example applications; `examples/dapp` is the small default reference app. |
+| `projects/` | DApp projects, including the preprod proof server. |
 | `docs/` | Design notes and runbooks. |
 | `Earthfile` | Build targets for the base OS image, the deployable VM image and the guest binaries. |
 
-Select a project with `--app-dir projects/<name>`. See
-[project configuration](docs/project-configuration.md) for the app port,
-hostnames and internal proxy connection.
+Select an example or a folder outside this checkout with `--app-dir <path>`.
+Use the same path when validating, packaging and registering. See
+[project configuration](docs/project-configuration.md) for the external-folder
+workflow, app port, hostnames and internal proxy connection.
 
 ## Installing the CLI
 
@@ -102,11 +105,14 @@ You also need these tools on your `PATH`:
 
 Build or pull a base OS image, package a DApp, deploy it and register it:
 
+First configure `examples/dapp/metadata.json` with actual digest-pinned image
+references; its placeholders are not ready to package.
+
 ```bash
 # 1. Base OS image (or `veritee pull-base-os-image` for an approved release)
 veritee build-base-os-image --azuresnp
 
-# 2. Package the DApp in projects/dapp into a deployable VM image
+# 2. Package the DApp in examples/dapp into a deployable VM image
 export VERITEE_ACR_NAME=myregistry
 veritee package-dapp-deployable-vm-image
 
@@ -117,12 +123,24 @@ veritee create-vm --azuresnp
 
 # 4. Register the DApp with a Warden
 export VERITEE_WARDEN_URL=https://warden.example.com
-veritee register-app --metadata-path local-azure-snp/metadata.json
+veritee register-app --app-dir examples/dapp --metadata-path local-azure-snp/metadata.json
 ```
 
 Each step has options for attestation modes, TLS modes, outbound network
 policy, OS release approval and deployment lifecycle. They are described in the
 [operator guide](docs/operator-guide.md).
+
+The Azure Terraform module requires `vhd_sha256`. `veritee create-vm` verifies
+the VHD and supplies it automatically. Direct Terraform calls must supply the
+64-character lowercase digest computed from the VHD; the module does not hash
+the file again.
+
+Packaging checks bundled registration limits and rebuild inputs locally before
+pulling images. Replace the example metadata's placeholder image references with
+digest pins, then run `veritee validate-dapp --app-dir examples/dapp` to check
+them independently, without contacting Warden. Packages record input hashes
+outside the measured disk and exclude generated `run.d/certs/`. Operator images
+that will not be registered can use `--no-registration-preflight`.
 
 ## Terminology
 
@@ -148,7 +166,7 @@ policy, OS release approval and deployment lifecycle. They are described in the
   design notes for binding a TLS session to the attested enclave.
 - [Egress proxy](server/egress_proxy/README.md) and its
   [security notes](server/egress_proxy/SECURITY.md); the
-  [guest attestation helper](server/guest_attestation/README.md).
+  [guest attestation helper](server/guest_attestation/).
 - Example projects: [Midnight proof server](docs/proof-server-preview.md) and
   [Midnight indexer](docs/indexer-standalone.md).
 

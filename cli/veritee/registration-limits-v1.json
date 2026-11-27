@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "max_bytes": 1024,
+  "field_encoded_bytes": {
+    "name": 34,
+    "description": 130,
+    "address": 74,
+    "deployment_url": 74,
+    "attestation_url": 90,
+    "attestation_domain_name": 82,
+    "tls_mode": 18,
+    "public_key": 66,
+    "application_id": 66,
+    "base_os_version": 34,
+    "base_os_release_manifest_digest": 73
+  }
+}

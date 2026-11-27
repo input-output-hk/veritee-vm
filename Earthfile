@@ -192,6 +192,28 @@ build-egress-proxy:
 
     SAVE ARTIFACT target/release/temenos-egress-proxy /egress_proxy_bin
 
+verified-docker-apt:
+    FROM +debian-systemd
+    RUN apt-get install --assume-yes --no-install-recommends gpgv=2.4.7-21+b3
+    WORKDIR /workdir
+    COPY --dir veritee-os/docker-apt .
+    RUN python3 docker-apt/verify.py stage docker-apt/packages docker-packages
+    SAVE ARTIFACT docker-packages /docker-packages
+
+test-docker-apt-install:
+    FROM +debian-systemd
+    RUN apt-get install --assume-yes --no-install-recommends \
+        python3-pip=25.1.1+dfsg-1 python3-venv=3.13.5-1 pipx=1.7.1-1 \
+        ubuntu-keyring=2023.11.28.1-0.2 apt-utils=3.0.3
+    RUN pipx install git+https://github.com/systemd/mkosi.git@0f11ffe01a96fd0f6731bd2c98246ee19f2add16
+    WORKDIR /workdir
+    COPY --dir veritee-os/docker-apt .
+    COPY (+verified-docker-apt/docker-packages) docker-packages
+    COPY --dir veritee-os/mkosi/rootfs/mkosi.pkgmngr .
+    RUN --privileged python3 docker-apt/install_test.py \
+        /root/.local/bin/mkosi docker-packages mkosi.pkgmngr install-result.json
+    SAVE ARTIFACT install-result.json /install-result.json
+
 veritee-os-azure-snp:
     FROM +debian-systemd
 
@@ -214,8 +236,9 @@ veritee-os-azure-snp:
     'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20251208T000000Z/ trixie main contrib non-free non-free-firmware' \
     > /etc/apt/sources.list && \
     apt-get update
-    RUN apt-get install --assume-yes --no-install-recommends dosfstools=4.2-1.2 cpio=2.15+dfsg-2 zstd=1.5.7+dfsg-1 kmod=34.2-2 ubuntu-keyring=2023.11.28.1-0.2 curl=8.14.1-2+deb13u2 wget=1.25.0-2 reprepro=5.4.6+really5.3.2-1
+    RUN apt-get install --assume-yes --no-install-recommends dosfstools=4.2-1.2 cpio=2.15+dfsg-2 zstd=1.5.7+dfsg-1 kmod=34.2-2 ubuntu-keyring=2023.11.28.1-0.2 curl=8.14.1-2+deb13u2 wget=1.25.0-2 reprepro=5.4.6+really5.3.2-1 apt-utils=3.0.3
     WORKDIR /workdir
+    COPY (+verified-docker-apt/docker-packages) docker-packages
 
     COPY veritee-os/render_template ./render_template
     RUN pipx install render_template/
@@ -291,6 +314,7 @@ veritee-os-azure-snp:
 
 
 veritee-os-azure-snp-combined:
+    ARG --required APP_DIR
     FROM +debian-systemd
 
     DO github.com/earthly/lib:18cd0072824d86e77ed3ab3ad350f7ba34d33e84+INSTALL_DIND
@@ -308,8 +332,6 @@ veritee-os-azure-snp-combined:
     ARG GUEST_ATTESTATION_IMAGE="temenostest.azurecr.io/veritee/guest-attestation@sha256:9426ac1dce1c3501c70252ab37d9d591ebfaca252f853e31da747acf541d6b1a"
     # This should of course not have a default value. This is mainly here for demo purposes.
     ARG USER_DOCKER="snowder/temenos@sha256:ce071a393d8b289eef004412249250dd0ccf0d5969d2a28ca0037ad51b9a3d66"
-    # This is the directory where the application disk related files are located.
-    ARG APP_DIR="projects/dapp"
     ARG PERSIST_SIZE="2G"
     ARG VERITEE_TLS_MODE="internal"
     ARG ATTESTATION_MODE="maa"
@@ -325,8 +347,9 @@ veritee-os-azure-snp-combined:
     'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20251208T000000Z/ trixie main contrib non-free non-free-firmware' \
     > /etc/apt/sources.list && \
     apt-get update
-    RUN apt-get install --assume-yes --no-install-recommends dosfstools=4.2-1.2 cpio=2.15+dfsg-2 zstd=1.5.7+dfsg-1 kmod=34.2-2 ubuntu-keyring=2023.11.28.1-0.2 curl=8.14.1-2+deb13u2 wget=1.25.0-2 reprepro=5.4.6+really5.3.2-1
+    RUN apt-get install --assume-yes --no-install-recommends dosfstools=4.2-1.2 cpio=2.15+dfsg-2 zstd=1.5.7+dfsg-1 kmod=34.2-2 ubuntu-keyring=2023.11.28.1-0.2 curl=8.14.1-2+deb13u2 wget=1.25.0-2 reprepro=5.4.6+really5.3.2-1 apt-utils=3.0.3
     WORKDIR /workdir
+    COPY (+verified-docker-apt/docker-packages) docker-packages
 
     COPY veritee-os/render_template ./render_template
     RUN pipx install render_template/
@@ -374,10 +397,12 @@ veritee-os-azure-snp-combined:
 
     WORKDIR /workdir
     COPY $APP_DIR/ ./disk
+    # Runtime certificates and source Git metadata are never app-disk inputs.
+    RUN rm -rf ./disk/run.d/certs ./disk/.git
     # Use shared app scripts unless the DApp source provides overrides.
     # Permission normalization below also applies to source-provided overrides.
-    COPY projects/templates/run.d/main ./default-run-main
-    COPY projects/templates/setup.d/main ./default-setup-main
+    COPY veritee-os/app-disk/run.d/main ./default-run-main
+    COPY veritee-os/app-disk/setup.d/main ./default-setup-main
     RUN if [ ! -f ./disk/run.d/main ]; then \
             install -D -m 0755 ./default-run-main ./disk/run.d/main; \
         fi && \
@@ -464,6 +489,7 @@ veritee-os-azure-snp-combined:
 
 
 veritee-os-azure-snp-extend-os:
+    ARG --required APP_DIR
     FROM +debian-systemd
 
     DO github.com/earthly/lib:18cd0072824d86e77ed3ab3ad350f7ba34d33e84+INSTALL_DIND
@@ -477,8 +503,6 @@ veritee-os-azure-snp-extend-os:
     ARG GUEST_ATTESTATION_IMAGE="temenostest.azurecr.io/veritee/guest-attestation@sha256:9426ac1dce1c3501c70252ab37d9d591ebfaca252f853e31da747acf541d6b1a"
     # This should of course not have a default value. This is mainly here for demo purposes.
     ARG USER_DOCKER="snowder/temenos@sha256:ce071a393d8b289eef004412249250dd0ccf0d5969d2a28ca0037ad51b9a3d66"
-    # This is the directory where the application disk related files are located.
-    ARG APP_DIR="projects/dapp"
     ARG OS_RAW="local-base-os/disk.raw"
     ARG PERSIST_SIZE="2G"
     ARG ACR_REGISTRY=""
@@ -532,10 +556,12 @@ veritee-os-azure-snp-extend-os:
 
     WORKDIR /workdir
     COPY $APP_DIR/ ./disk
+    # Runtime certificates and source Git metadata are never app-disk inputs.
+    RUN rm -rf ./disk/run.d/certs ./disk/.git
     # Use shared app scripts unless the DApp source provides overrides.
     # Permission normalization below also applies to source-provided overrides.
-    COPY projects/templates/run.d/main ./default-run-main
-    COPY projects/templates/setup.d/main ./default-setup-main
+    COPY veritee-os/app-disk/run.d/main ./default-run-main
+    COPY veritee-os/app-disk/setup.d/main ./default-setup-main
     RUN if [ ! -f ./disk/run.d/main ]; then \
             install -D -m 0755 ./default-run-main ./disk/run.d/main; \
         fi && \
@@ -583,6 +609,7 @@ guest-attestation-image:
     FROM DOCKERFILE server/guest_attestation
 
 dapp-appdisk:
+    ARG --required APP_DIR
     FROM +debian-systemd
 
     DO github.com/earthly/lib:18cd0072824d86e77ed3ab3ad350f7ba34d33e84+INSTALL_DIND
@@ -591,9 +618,6 @@ dapp-appdisk:
     ARG GUEST_ATTESTATION_IMAGE="temenostest.azurecr.io/veritee/guest-attestation@sha256:9426ac1dce1c3501c70252ab37d9d591ebfaca252f853e31da747acf541d6b1a"
     # This should of course not have a default value. This is mainly here for demo purposes.
     ARG USER_DOCKER="snowder/temenos@sha256:ce071a393d8b289eef004412249250dd0ccf0d5969d2a28ca0037ad51b9a3d66"
-    # This is the directory where the application disk related files are located. It should contain the Dockerfiles, configuration files and any other files needed to build the application disk.
-    # Has a default value for convenience reasons
-    ARG APP_DIR="projects/dapp"
     ARG VERITEE_TLS_MODE="internal"
 
     WORKDIR /workdir/disk/container-images
@@ -634,12 +658,14 @@ dapp-appdisk:
     END
 
     WORKDIR /workdir
-    COPY $APP_DIR/../*.conf .
+    COPY veritee-os/app-disk/*.conf .
     COPY $APP_DIR/ ./disk
+    # Runtime certificates and source Git metadata are never app-disk inputs.
+    RUN rm -rf ./disk/run.d/certs ./disk/.git
     # Use shared app scripts unless the DApp source provides overrides.
     # Permission normalization below also applies to source-provided overrides.
-    COPY projects/templates/run.d/main ./default-run-main
-    COPY projects/templates/setup.d/main ./default-setup-main
+    COPY veritee-os/app-disk/run.d/main ./default-run-main
+    COPY veritee-os/app-disk/setup.d/main ./default-setup-main
     RUN if [ ! -f ./disk/run.d/main ]; then \
             install -D -m 0755 ./default-run-main ./disk/run.d/main; \
         fi && \

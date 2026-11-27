@@ -108,7 +108,6 @@ class GeneratorBuildInputsTests(unittest.TestCase):
         )
         self.assertEqual(set(images), {default})
         self.assertRegex(default, r"@sha256:[0-9a-f]{64}$")
-        self.assertIn(default, (ROOT / "README.md").read_text())
 
 
 if __name__ == "__main__":

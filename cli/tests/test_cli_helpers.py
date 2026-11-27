@@ -18,6 +18,7 @@ from veritee import cli
 from typer.testing import CliRunner
 
 cli.log.setLevel(logging.CRITICAL)
+TEST_PROJECT = Path(__file__).resolve().parents[2] / "projects/proof_server_preprod"
 
 
 class FakeResponse:
@@ -154,7 +155,7 @@ class RegistrationInputTests(unittest.TestCase):
                     cli.validate_attestation_domain_name(value)
 
     def test_load_register_app_disk_files_reads_selected_app_dir(self):
-        app_dir = Path("projects/dapp")
+        app_dir = TEST_PROJECT
 
         self.assertEqual(
             cli.load_register_app_disk_files(app_dir),
@@ -206,23 +207,23 @@ class RegistrationInputTests(unittest.TestCase):
             )
 
     def test_default_attestation_domain_from_caddyfile_uses_first_site_host(self):
-        caddyfile = Path("projects/dapp/run.d/Caddyfile.template").read_text()
+        caddyfile = (TEST_PROJECT / "run.d/Caddyfile.template").read_text()
 
         self.assertEqual(
             cli.default_attestation_domain_from_caddyfile(caddyfile),
-            "attestation-endpoint.api.mydapp.midnight.io",
+            "attestation.proofserver.preprod.example.test",
         )
 
     def test_generic_template_shared_upstream_keeps_both_tls_hostnames(self):
-        caddyfile = Path("projects/dapp/run.d/Caddyfile.template")
+        caddyfile = TEST_PROJECT / "run.d/Caddyfile.template"
         expected = [
-            "attestation-endpoint.api.mydapp.midnight.io",
-            "api.mydapp.midnight.io",
+            "attestation.proofserver.preprod.example.test",
+            "api.proofserver.preprod.example.test",
         ]
         self.assertEqual(cli.caddyfile_site_hosts(caddyfile), expected)
 
         # Run the guest's actual hostname extractor against the same template.
-        startup = Path("projects/templates/run.d/main").read_text()
+        startup = Path("veritee-os/app-disk/run.d/main").read_text()
         start = startup.index("site_host() {")
         end = startup.index("\n}\n", start) + 2
         result = subprocess.run(
@@ -261,9 +262,9 @@ class RegistrationInputTests(unittest.TestCase):
             root = Path(tmpdir)
             metadata_file = root / "metadata.json"
             metadata_file.write_text(
-                Path("projects/dapp/metadata.json").read_text()
+                (TEST_PROJECT / "metadata.json").read_text()
             )
-            app_source_root = root / "projects"
+            app_source_root = root / "examples"
             app_source_root.mkdir()
 
             with mock.patch.object(cli, "APP_SOURCE_ROOT", app_source_root):
@@ -282,27 +283,29 @@ class RegistrationInputTests(unittest.TestCase):
             )
 
     def test_caddyfile_site_hosts_ignores_global_options_block(self):
-        caddyfile = Path("projects/recovery-proverd/run.d/Caddyfile.template").read_text()
+        caddyfile = (TEST_PROJECT / "run.d/Caddyfile.template").read_text()
 
         self.assertEqual(
             cli.caddyfile_site_hosts(caddyfile),
             [
-                "attestation-endpoint.api.recovery-proverd.midnight.io",
-                "api.recovery-proverd.midnight.io",
+                "attestation.proofserver.preprod.example.test",
+                "api.proofserver.preprod.example.test",
             ],
         )
 
     def test_single_caddy_site_is_both_attestation_and_api_host(self):
-        app_dir = Path("projects/warden")
-
-        self.assertEqual(
-            cli.default_register_attestation_domain("azure_vault", app_dir),
-            "warden.wastedp.io",
-        )
-        self.assertEqual(
-            cli.default_register_address("azure_vault", app_dir),
-            "https://warden.wastedp.io",
-        )
+        with tempfile.TemporaryDirectory() as directory:
+            app_dir = Path(directory)
+            (app_dir / "run.d").mkdir()
+            (app_dir / cli.DAPP_CADDYFILE_TEMPLATE).write_text("warden.example.test {\n}\n")
+            self.assertEqual(
+                cli.default_register_attestation_domain("azure_vault", app_dir),
+                "warden.example.test",
+            )
+            self.assertEqual(
+                cli.default_register_address("azure_vault", app_dir),
+                "https://warden.example.test",
+            )
 
 
 class AppBuildSourceTests(unittest.TestCase):
@@ -314,7 +317,7 @@ class AppBuildSourceTests(unittest.TestCase):
         self.assertEqual(cli.resolve_persist_size(None, {}), cli.DEFAULT_PERSIST_SIZE)
 
     def test_warden_metadata_requests_persistent_build_cache_capacity(self):
-        metadata = cli.load_app_source_metadata(Path("projects/warden"))
+        metadata = cli.load_app_source_metadata(Path("examples/warden"))
 
         self.assertEqual(metadata["persist_size"], "32G")
 
@@ -384,10 +387,7 @@ networks:
                 ) as (staged_dir_name, staged_metadata):
                     staged_dir = Path(staged_dir_name)
                     self.assertTrue(staged_dir.is_dir())
-                    self.assertEqual(
-                        (staged_dir.parent / "10-app.conf").read_text(),
-                        repart_definition.read_text(),
-                    )
+                    self.assertFalse((staged_dir.parent / "10-app.conf").exists())
                     self.assertEqual(
                         json.loads((staged_dir / cli.APP_METADATA_FILE).read_text()),
                         shipped_metadata,
@@ -721,6 +721,7 @@ class AzureDeploymentInventoryTests(unittest.TestCase):
             mock.patch.object(cli, "require_inventory_storage") as inventory,
             mock.patch.object(cli, "repo_root_from_cwd", return_value=Path("/tmp/temenos-test")),
             mock.patch.object(cli, "load_app_metadata", return_value=metadata),
+            mock.patch.object(cli, "load_json_file", return_value=metadata),
             mock.patch.object(cli, "load_tee_measurements", return_value={"measurements": {}, "application_root_hash": "3" * 64}),
             mock.patch.object(cli, "print_phase"),
             mock.patch.object(cli.Deployer, "assert_available") as terraform,
@@ -756,6 +757,12 @@ class AzureDeploymentInventoryTests(unittest.TestCase):
             self.assertEqual(workdir.stat().st_mode & 0o777, 0o700)
 
     def test_noninteractive_create_records_tagged_immutable_deployment(self):
+        repo_root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        disk_dir = repo_root / cli.DAPP_OUTPUT_DIR
+        disk_dir.mkdir()
+        verified_hash = hashlib.sha256(b"verified VHD").hexdigest()
+        hash_path = disk_dir / cli.AZURE_VHD_HASH_FILE
+        hash_path.write_text(verified_hash + "\n")
         stdin = SimpleNamespace(isatty=lambda: False)
         metadata = {
             "name": "Demo",
@@ -793,11 +800,14 @@ class AzureDeploymentInventoryTests(unittest.TestCase):
                 mock.patch.object(
                     cli,
                     "repo_root_from_cwd",
-                    return_value=Path("/repo"),
+                    return_value=repo_root,
                 )
             )
             stack.enter_context(
                 mock.patch.object(cli, "load_app_metadata", return_value=metadata)
+            )
+            stack.enter_context(
+                mock.patch.object(cli, "load_json_file", return_value=metadata)
             )
             stack.enter_context(
                 mock.patch.object(
@@ -858,7 +868,7 @@ class AzureDeploymentInventoryTests(unittest.TestCase):
                 mock.patch.object(cli, "append_inventory_record")
             )
             echo = stack.enter_context(mock.patch.object(cli.typer, "echo"))
-            cli.create_vm(
+            create_options = dict(
                 azure_snp=True,
                 resource_group="temenos-demo-rg",
                 location="eastus",
@@ -870,11 +880,27 @@ class AzureDeploymentInventoryTests(unittest.TestCase):
                 use_tpm2_checkquote=False,
                 unbound_attestation=False,
             )
+            cli.create_vm(**create_options)
 
-        workdir = Path("/repo/.temenos/deploy-azure-snp/demo-20260918t120000z-abcd1234")
+            # A successful conversion must leave a usable checksum. A missing
+            # or malformed sidecar must not start Terraform provisioning.
+            for invalid_hash in (None, "", "invalid\n"):
+                with self.subTest(checksum=invalid_hash):
+                    if invalid_hash is None:
+                        hash_path.unlink()
+                    else:
+                        hash_path.write_text(invalid_hash)
+                    with self.assertRaisesRegex(
+                        cli.DeployerException, "verified Azure VHD checksum",
+                    ):
+                        cli.create_vm(**create_options)
+
+        workdir = repo_root / ".temenos/deploy-azure-snp/demo-20260918t120000z-abcd1234"
         init.assert_called_once_with(workdir, "deploy-azure-snp")
+        launch.assert_called_once()
         launch_workdir, tf_vars = launch.call_args.args
         self.assertEqual(launch_workdir, workdir)
+        self.assertEqual(tf_vars["vhd_sha256"], verified_hash)
         self.assertEqual(
             tf_vars["instance_type"],
             "Standard_DC8ads_v5",
@@ -2022,7 +2048,7 @@ class EnvironmentAndCommandHelperTests(unittest.TestCase):
     def test_earthly_command_supplies_empty_optional_dockerhub_secrets(self):
         with mock.patch.dict(os.environ, {}, clear=True):
             command = cli.build_earthly_app_disk_command(
-                app_dir="projects/dapp",
+                app_dir="examples/dapp",
                 app_container_image="docker.io/example/app@sha256:abc",
                 guest_attestation_image="docker.io/example/attester@sha256:def",
                 registry="example.azurecr.io",

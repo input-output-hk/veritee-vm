@@ -24,11 +24,11 @@ variable "vhd_path" {
 
 variable "vhd_sha256" {
   type        = string
-  default     = ""
-  description = "VHD checksum already verified by the Veritee CLI; standalone Terraform computes it when omitted."
+  nullable    = false
+  description = "Required VHD checksum, verified and supplied by the Veritee CLI. Direct Terraform callers must supply a digest computed from the VHD."
   validation {
-    condition     = var.vhd_sha256 == "" || can(regex("^[a-f0-9]{64}$", var.vhd_sha256))
-    error_message = "vhd_sha256 must be an empty string or a lowercase SHA-256 digest."
+    condition     = can(regex("^[a-f0-9]{64}$", var.vhd_sha256))
+    error_message = "vhd_sha256 must be a 64-character lowercase SHA-256 digest."
   }
 }
 

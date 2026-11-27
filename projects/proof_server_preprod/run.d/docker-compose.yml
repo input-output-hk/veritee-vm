@@ -1,0 +1,65 @@
+services:
+  guest-attestation:
+    image: guest-attestation
+    restart: "no"
+    env_file:
+      - ./.guest-attestation.env
+    volumes:
+      - static_attestation:/srv
+      - /root/application_disk_root_hash:/application_disk_root_hash
+    devices:
+      - /dev/tpmrm0:/dev/tpmrm0
+    networks:
+      - constrained-attestation
+
+  caddy:
+    image: caddy
+    restart: unless-stopped
+    environment:
+      APP_UPSTREAM: "app:6300"
+    extra_hosts:
+      - "attestation:host-gateway"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+      # The attestation server uses this loopback listener to reach the app.
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./Caddyfile.generated:/etc/caddy/Caddyfile:ro
+      - ${TEMENOS_TLS_CERTS_DIR:-./certs}:/certs:ro
+      - static_attestation:/srv
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      internet-access: {}
+      constrained-attestation:
+        aliases:
+          - caddy-in-constrained-attestation-generator-network
+      constrained-app: {}
+
+  app:
+    image: dapp:tee
+    restart: unless-stopped
+    environment:
+      ATTESTATION_SERVER_URL: "http://attestation:8000"
+    extra_hosts:
+      - "attestation:host-gateway"
+    networks:
+      - constrained-app
+
+volumes:
+  caddy_data:
+  caddy_config:
+  static_attestation:
+
+networks:
+  # Caddy publishes ingress; the app and evidence helper remain private.
+  internet-access:
+    driver: bridge
+  constrained-attestation:
+    driver: bridge
+    internal: true
+  constrained-app:
+    driver: bridge
+    internal: true

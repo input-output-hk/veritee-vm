@@ -1,0 +1,12 @@
+{
+    "name": "Midnight Indexer (preprod)",
+    "description": "Midnight preprod indexer and GraphQL API. Persistent data is not attested; chain data trusts the configured upstream node.",
+    "app_container_image": "docker.io/midnightntwrk/indexer-standalone:3.0.0@sha256:db88843e1ef2cd7c83b3df085cf14302141c41fba923a79f45056c32253c45e7",
+    "base_os_image": "temenostest.azurecr.io/temenos/base-os:0.5.1-raw-sev-snp@sha256:dbd83808ea1937bec20f7bb069264034b2a788f328cf88f9b5dbe7054efdaf1e",
+    "outbound": [
+        {
+            "host": "rpc.preprod.midnight.network",
+            "ports": [443]
+        }
+    ]
+}
