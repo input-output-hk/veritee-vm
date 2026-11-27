@@ -82,6 +82,11 @@ class AttestationMode(str, Enum):
     RAW_SEV_SNP = "raw-sev-snp"
 
 
+class CloudProvider(str, Enum):
+    AZURE = "azure"
+    AWS = "aws"
+
+
 def color_text(value: str, color: str) -> str:
     if os.getenv("NO_COLOR"):
         return value
@@ -5080,12 +5085,13 @@ def push_base_os_image(
 @app.command("build-base-os-image", rich_help_panel=COMMAND_PANEL_IMAGES)
 def build_base_os_image(
     azure_snp: Annotated[bool, typer.Option("--azuresnp")] = False,
+    provider: Annotated[CloudProvider, typer.Option(help="OS build provider. AWS currently builds a bare-attestation prototype.")] = CloudProvider.AZURE,
     attestation_mode: Annotated[
-        AttestationMode,
+        Optional[AttestationMode],
         typer.Option(
-            help="Attestation evidence compiled into the base OS image: MAA-backed or raw Azure SEV-SNP"
+            help="Attestation evidence. Defaults to MAA on Azure and direct raw SEV-SNP on AWS."
         ),
-    ] = AttestationMode.MAA,
+    ] = None,
     debug: Annotated[bool, typer.Option()] = False,
     verbose: Annotated[bool, typer.Option()] = False,
     allow_unbound_attestation: Annotated[
@@ -5097,6 +5103,15 @@ def build_base_os_image(
     ] = False,
 ):
     """Build the base Veritee OS image. Use package-dapp-deployable-vm-image to package a DApp."""
+    attestation_mode = attestation_mode or (
+        AttestationMode.RAW_SEV_SNP if provider == CloudProvider.AWS else AttestationMode.MAA
+    )
+    if provider == CloudProvider.AWS:
+        if azure_snp or debug or allow_unbound_attestation or attestation_mode != AttestationMode.RAW_SEV_SNP:
+            raise typer.BadParameter("The AWS prototype supports bound direct SEV-SNP only; Azure/debug/MAA options do not apply")
+        from veritee import aws
+        return aws.build_image(Path.cwd(), verbose=verbose, run=run_native_build)
+
     validate_unbound_attestation_build(
         debug=debug,
         allow_unbound_attestation=allow_unbound_attestation,

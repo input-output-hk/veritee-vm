@@ -1,4 +1,4 @@
-"""Containerized Azure SNP builds using Docker, mkosi and systemd-repart."""
+"""Containerized SNP builds using Docker, mkosi and systemd-repart."""
 from contextlib import contextmanager
 import base64
 import fcntl
@@ -20,8 +20,10 @@ class BuildError(RuntimeError):
     pass
 
 
-def base_command(os_config, attestation_mode, allow_unbound_attestation):
-    return ['python3', '-m', 'veritee.build', 'azure-snp-base', '--os-config', os_config,
+def base_command(os_config, attestation_mode, allow_unbound_attestation, *, provider='azure'):
+    if provider not in ('azure', 'aws'):
+        raise BuildError('Unsupported OS build provider')
+    return ['python3', '-m', 'veritee.build', provider + '-snp-base', '--os-config', os_config,
             '--attestation-mode', attestation_mode,
             '--allow-unbound-attestation', str(allow_unbound_attestation).lower()]
 
@@ -36,14 +38,21 @@ def application_command(action, *, app_dir, image, guest_image, tls_mode, persis
 
 def check_inputs(repo, action, app_dir=None):
     repo = Path(repo).resolve()
-    required = ['build/Dockerfile', 'update_systemd.sh', 'veritee-os/docker-apt/verify.py']
+    required = ['build/Dockerfile', 'update_systemd.sh']
     if action == 'azure-snp-base':
         required += ['build/azure-snp-os.sh', 'veritee-os/config-azure.yaml',
                      'veritee-os/config-azure.debug.yaml', 'server/azure_attestation_server/Cargo.lock',
                      'server/egress_proxy/Cargo.lock', 'cli/veritee/proxy_policy.py']
+        required += ['veritee-os/docker-apt/verify.py']
+    elif action == 'aws-snp-base':
+        required += ['build/aws-snp-os.sh', 'veritee-os/config-aws.yaml',
+                     'veritee-os/mkosi/aws/mkosi.conf.j2',
+                     'veritee-os/mkosi/aws/mkosi.postinst',
+                     'veritee-os/mkosi/aws/mkosi.extra/usr/local/bin/veritee-snp-report']
     elif action in ('app', 'extend'):
         required += ['build/app-disk.sh', 'build/app-images.conf', 'veritee-os/app-disk/run.d/main', 'veritee-os/app-disk/setup.d/main',
-                     'veritee-os/app-disk/10-app.conf', 'veritee-os/app-disk/11-app-verity.conf']
+                     'veritee-os/app-disk/10-app.conf', 'veritee-os/app-disk/11-app-verity.conf',
+                     'veritee-os/docker-apt/verify.py']
         if app_dir is None:
             raise BuildError('Application source is required')
         app = Path(app_dir)
@@ -134,8 +143,8 @@ def run(command, *, repo, verbose=False, registry='', token=''):
     """Run only the fixed recipes represented by CLI-generated commands."""
     import argparse
     parser = argparse.ArgumentParser(prog='veritee-build')
-    parser.add_argument('action', choices=['azure-snp-base', 'app', 'extend'])
-    parser.add_argument('--os-config', choices=['config-azure.yaml', 'config-azure.debug.yaml'], default='config-azure.yaml')
+    parser.add_argument('action', choices=['azure-snp-base', 'aws-snp-base', 'app', 'extend'])
+    parser.add_argument('--os-config', choices=['config-azure.yaml', 'config-azure.debug.yaml', 'config-aws.yaml'], default='config-azure.yaml')
     parser.add_argument('--attestation-mode', choices=['maa', 'raw-sev-snp'], default='maa')
     parser.add_argument('--allow-unbound-attestation', choices=['true', 'false'], default='false')
     parser.add_argument('--app-dir')
@@ -148,6 +157,11 @@ def run(command, *, repo, verbose=False, registry='', token=''):
     args = parser.parse_args(command[3:])
     repo = Path(repo).resolve()
     check_inputs(repo, args.action, args.app_dir)
+    if args.action == 'aws-snp-base':
+        if args.os_config != 'config-aws.yaml' or args.attestation_mode != 'raw-sev-snp' or args.allow_unbound_attestation != 'false':
+            raise BuildError('AWS requires config-aws.yaml and bound direct SEV-SNP attestation')
+    elif args.os_config == 'config-aws.yaml':
+        raise BuildError('The AWS profile requires the aws-snp-base build action')
     if args.allow_unbound_attestation == 'true' and args.os_config != 'config-azure.debug.yaml':
         raise BuildError('Unbound attestation requires the debug profile')
     environment = dict(os.environ)
@@ -162,7 +176,8 @@ def run(command, *, repo, verbose=False, registry='', token=''):
         for key in ('NO_PROXY', 'no_proxy'):
             environment[key] = environment['VERITEE_BUILD_NO_PROXY']
     builder, network = ensure_builder(repo, environment, verbose)
-    target = 'azure-snp-os-builder' if args.action == 'azure-snp-base' else 'app-disk-builder'
+    target = {'azure-snp-base': 'azure-snp-os-builder', 'aws-snp-base': 'aws-snp-os-builder',
+              'app': 'app-disk-builder', 'extend': 'app-disk-builder'}[args.action]
     # Names belong to this invocation. Concurrent callers cannot retag or
     # remove one another's builder images and runtime containers.
     identifier = uuid.uuid4().hex
@@ -178,7 +193,8 @@ def run(command, *, repo, verbose=False, registry='', token=''):
         build_command += ['--build-arg', 'ATTESTATION_MODE=' + args.attestation_mode,
                           '--build-arg', 'ALLOW_UNBOUND_ATTESTATION=' + args.allow_unbound_attestation]
     build_command += [str(repo)]
-    output = repo / ('local' if args.action == 'app' else 'local-base-os' if args.action == 'azure-snp-base' else 'local-azure-snp')
+    output = repo / {'app': 'local', 'azure-snp-base': 'local-base-os',
+                     'aws-snp-base': 'local-aws-snp', 'extend': 'local-azure-snp'}[args.action]
     output.mkdir(parents=True, exist_ok=True)
     # Docker may run on Warden's host while the CLI runs inside its container.
     # Stage a complete job under shared storage and translate only that root.
@@ -206,6 +222,8 @@ def run(command, *, repo, verbose=False, registry='', token=''):
                 run_command += ['--env', 'OS_CONFIG=' + args.os_config,
                                 '--env', 'ATTESTATION_MODE=' + args.attestation_mode,
                                 '--env', 'ALLOW_UNBOUND_ATTESTATION=' + args.allow_unbound_attestation]
+            elif args.action == 'aws-snp-base':
+                run_command += ['--env', 'OS_CONFIG=' + args.os_config]
             else:
                 app = Path(args.app_dir)
                 app = (app if app.is_absolute() else repo / app).resolve()

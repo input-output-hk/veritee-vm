@@ -243,6 +243,7 @@ jobs:
         run: |
           python -m unittest discover -s cli/tests -p 'test_build.py' -v
           python -m unittest discover -s cli/tests -p 'test_veritee_cli.py' -v
+          python -m unittest discover -s cli/tests -p 'test_aws_build.py' -v
 
       - name: Test measured proxy route policy
         run: python -m unittest discover -s cli/tests -p 'test_proxy_policy.py' -v

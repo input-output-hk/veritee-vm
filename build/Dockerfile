@@ -190,7 +190,7 @@ COPY build/allow-unbound-attestation.conf /rootfs/mkosi.debug/etc/systemd/system
 
 FROM os-project-${ALLOW_UNBOUND_ATTESTATION} AS os-project
 
-FROM tools AS azure-snp-os-builder
+FROM tools AS mkosi-builder
 ENV SOURCE_DATE_EPOCH=946684800 TZ=UTC
 WORKDIR /workdir
 RUN apt-get install --assume-yes --no-install-recommends \
@@ -211,10 +211,44 @@ RUN dpkg --install /tmp/apt-update/libapt.deb /tmp/apt-update/apt.deb /tmp/apt-u
     rm -rf /tmp/apt-update && apt-get --version
 COPY veritee-os/render_template /src/render_template
 RUN pipx install /src/render_template
+
+FROM mkosi-builder AS azure-snp-os-builder
 COPY --from=os-project / /src/project
 COPY build/azure-snp-os.sh /usr/local/bin/build-azure-snp-os
 WORKDIR /workdir
 ENTRYPOINT ["bash", "/usr/local/bin/build-azure-snp-os"]
+
+FROM tools AS aws-snp-tool
+ENV SOURCE_DATE_EPOCH=946684800 TZ=UTC
+RUN apt-get install --assume-yes --no-install-recommends curl make musl-tools perl patch
+ARG RUSTUP_VERSION="1.28.1"
+ARG RUST_TOOLCHAIN="1.89.0"
+ARG RUSTUP_SHA256="a3339fb004c3d0bb9862ba0bce001861fe5cbde9c10d16591eb3f39ee6cd3e7f"
+RUN curl -fsSL -o /tmp/rustup-init "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init" && \
+    echo "${RUSTUP_SHA256}  /tmp/rustup-init" | sha256sum -c - && \
+    chmod +x /tmp/rustup-init && \
+    /tmp/rustup-init -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}" --target x86_64-unknown-linux-musl
+ENV PATH="/root/.cargo/bin:${PATH}"
+# snpguest 0.11.0; no Hyper-V/HCL feature is enabled.
+ADD --checksum=sha256:d1be8f48bb1149c9b798b916ae19b6f18bdbd2c79625b19ebb67f66d631385b0 https://codeload.github.com/virtee/snpguest/tar.gz/cfedc83d25c2d8387a12276b6b0808c8941ccb98 /tmp/snpguest.tar.gz
+WORKDIR /src/snpguest
+RUN tar --extract --gzip --file=/tmp/snpguest.tar.gz --strip-components=1 && rm /tmp/snpguest.tar.gz
+COPY build/aws-snpguest-lock.patch /tmp/aws-snpguest-lock.patch
+RUN patch --fuzz=0 -p1 < /tmp/aws-snpguest-lock.patch
+ENV CC_x86_64_unknown_linux_musl=musl-gcc CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
+RUN cargo build --release --locked --no-default-features --target x86_64-unknown-linux-musl && \
+    install -D -m 0755 target/x86_64-unknown-linux-musl/release/snpguest /out/snpguest && \
+    install -D -m 0644 LICENSE /out/snpguest.LICENSE && \
+    rm -rf target /root/.cargo/registry
+
+FROM mkosi-builder AS aws-snp-os-builder
+COPY veritee-os/config-aws.yaml /src/project/config-aws.yaml
+COPY veritee-os/mkosi/aws /src/project/rootfs
+COPY --chmod=0755 --from=aws-snp-tool /out/snpguest /src/project/rootfs/mkosi.extra/usr/local/bin/snpguest
+COPY --from=aws-snp-tool /out/snpguest.LICENSE /src/project/rootfs/mkosi.extra/usr/share/doc/snpguest/LICENSE
+COPY build/aws-snp-os.sh /usr/local/bin/build-aws-snp-os
+WORKDIR /workdir
+ENTRYPOINT ["bash", "/usr/local/bin/build-aws-snp-os"]
 
 FROM tools AS app-disk-builder
 ENV SOURCE_DATE_EPOCH=946684800 TZ=UTC

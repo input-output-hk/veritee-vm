@@ -1,0 +1,4 @@
+Dir::Etc::sourcelist "sources.list";
+Dir::Etc::sourceparts "-";
+Acquire::Check-Valid-Until "false";
+Acquire::Retries "6";

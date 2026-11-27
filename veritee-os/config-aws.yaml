@@ -1,0 +1,6 @@
+# EC2 prototype for collecting direct AMD SEV-SNP reports at VMPL0.
+# Keep the distro/kernel and EC2 provisioning separate from the Azure guest.
+distribution: ubuntu
+release: noble
+snapshot: 20251013T000000Z
+kernel_package: linux-image-aws

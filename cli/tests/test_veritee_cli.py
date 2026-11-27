@@ -89,7 +89,7 @@ class CliRenameTests(unittest.TestCase):
                 self.assertEqual(measurements.call_args.args[0], Path.cwd() / "local-base-os/disk.raw")
                 self.assertEqual(measurements.call_args.args[2], "azure-snp")
 
-    def test_build_recipes_are_azure_snp_only(self):
+    def test_native_build_recipes_keep_azure_and_app_support(self):
         text = (REPOSITORY / "build/Dockerfile").read_text()
         self.assertIn("AS azure-snp-os-builder", text)
         self.assertIn("AS app-disk-builder", text)

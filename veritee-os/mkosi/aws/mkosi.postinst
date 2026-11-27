@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Keep SNP driver support a build requirement, rather than discovering a
+# missing module after importing the disk into EC2.
+shopt -s nullglob
+configs=("$BUILDROOT"/boot/config-*)
+[[ ${#configs[@]} -gt 0 ]] || { echo 'Missing AWS kernel configuration' >&2; exit 1; }
+grep -Eq '^CONFIG_SEV_GUEST=[ym]$' "${configs[@]}"
+grep -Eq '^CONFIG_AMD_MEM_ENCRYPT=y$' "${configs[@]}"
+
+systemctl --root="$BUILDROOT" enable systemd-networkd.service systemd-resolved.service ssh.service
+systemctl --root="$BUILDROOT" enable cloud-init-local.service cloud-init.service cloud-config.service cloud-final.service
+ln -sf ../run/systemd/resolve/stub-resolv.conf "$BUILDROOT/etc/resolv.conf"
+
+# Each EC2 boot gets its own identity and SSH host keys through cloud-init.
+rm -f "$BUILDROOT"/etc/ssh/ssh_host_*
+printf 'uninitialized\n' > "$BUILDROOT/etc/machine-id"
+rm -f "$BUILDROOT/var/lib/systemd/random-seed"
+rm -rf "$BUILDROOT/var/lib/cloud" "$BUILDROOT/var/lib/apt/lists/"* "$BUILDROOT/var/cache/apt/"*
+rm -f "$BUILDROOT/var/log/dpkg.log" "$BUILDROOT/var/log/apt/"*.log

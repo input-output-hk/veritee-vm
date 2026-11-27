@@ -1,0 +1,38 @@
+[Distribution]
+Distribution={{ distribution }}
+Release={{ release }}
+Architecture=x86-64
+Repositories=main,universe
+
+[Output]
+Format=disk
+Output=image
+ManifestFormat=json
+Seed=990cc474-4d44-4db1-ad9d-8a39d365e042
+
+[Content]
+Bootable=yes
+Bootloader=uki
+Packages=systemd
+         systemd-sysv
+         systemd-resolved
+         systemd-boot-efi
+         udev
+         kmod
+         {{ kernel_package }}
+         cloud-init
+         cloud-guest-utils
+         openssh-server
+         ca-certificates
+         python3
+KernelCommandLine=console=ttyS0
+# EC2 exposes EBS through NVMe and the network through ENA.
+KernelInitrdModules=default
+                    nvme
+                    ena
+Locale=C.UTF-8
+Timezone=UTC
+RootPassword=hashed:!
+
+[Validation]
+Checksum=yes

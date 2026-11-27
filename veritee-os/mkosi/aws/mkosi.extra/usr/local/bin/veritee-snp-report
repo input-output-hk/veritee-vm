@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+if [[ $# != 2 ]]; then
+    echo "Usage: veritee-snp-report <64-byte-report-data-file> <new-output-directory>" >&2
+    exit 2
+fi
+request=$(realpath "$1")
+[[ -f "$request" && $(stat --format=%s "$request") == 64 ]] || {
+    echo 'The client report-data file must contain exactly 64 bytes' >&2
+    exit 2
+}
+[[ -c /dev/sev-guest ]] || {
+    echo '/dev/sev-guest is unavailable; enable AMD SEV-SNP at EC2 launch' >&2
+    exit 1
+}
+mkdir -- "$2"
+output=$(realpath "$2")
+cp -- "$request" "$output/report-data.bin"
+# Request the caller's bytes directly from the Linux guest driver at VMPL0.
+snpguest report "$output/report.bin" "$output/report-data.bin" --vmpl 0
+snpguest certificates pem "$output/certificates"
+snpguest display report "$output/report.bin" > "$output/report.txt"
+printf 'Report and supplied certificate evidence saved to %s\n' "$output"

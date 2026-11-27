@@ -96,6 +96,10 @@ refresh the installation.
 `qemu-img` is required to produce Azure-compatible fixed VHD files. The CLI
 patches the VHD footer timestamp, checksum and disk UUID deterministically.
 
+An experimental AWS bare-attestation image can be built with
+`veritee build-base-os-image --provider aws`. It writes separate artifacts to
+`local-aws-snp/`; see the [AWS profile and test flow](docs/aws-attestation.md).
+
 You also need these tools on your `PATH`:
 
 - Docker Engine with the Buildx plugin, for image builds and packaging

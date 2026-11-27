@@ -21,3 +21,5 @@ att.json
 temenos_app_key
 
 /local-base-os/
+/local-aws-snp/
+!veritee-os/mkosi/aws/mkosi.extra/usr/local/
